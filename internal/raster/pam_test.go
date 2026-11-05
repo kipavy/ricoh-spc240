@@ -124,3 +124,32 @@ func TestBlank(t *testing.T) {
 		t.Fatal("should not be blank")
 	}
 }
+
+func TestRotate90CW(t *testing.T) {
+	// 2 wide x 3 tall; pixel (x,y) holds 10*y+x (+ channel offset c).
+	for _, ch := range []int{1, 4} {
+		src := &Page{W: 2, H: 3, Channels: ch, Pix: make([]byte, 6*ch)}
+		for y := 0; y < 3; y++ {
+			for x := 0; x < 2; x++ {
+				for c := 0; c < ch; c++ {
+					src.Pix[(y*2+x)*ch+c] = byte(10*y + x + 64*c)
+				}
+			}
+		}
+		got := src.Rotate90CW()
+		if got.W != 3 || got.H != 2 || got.Channels != ch {
+			t.Fatalf("ch %d: dims %dx%d/%d", ch, got.W, got.H, got.Channels)
+		}
+		// rows of the result (clockwise): [20 10 0] / [21 11 1]
+		want := [][]int{{20, 10, 0}, {21, 11, 1}}
+		for y := 0; y < 2; y++ {
+			for x := 0; x < 3; x++ {
+				for c := 0; c < ch; c++ {
+					if g := int(got.Pix[(y*3+x)*ch+c]); g != want[y][x]+64*c {
+						t.Errorf("ch %d (%d,%d,%d) = %d want %d", ch, x, y, c, g, want[y][x]+64*c)
+					}
+				}
+			}
+		}
+	}
+}

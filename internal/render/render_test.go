@@ -274,3 +274,22 @@ func TestDetectEmpty(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestLandscapeCommands(t *testing.T) {
+	r := req()
+	r.Landscape = true
+	argv, _ := PageCommand(r, "/tmp/w/input.pdf", 1)
+	j := strings.Join(argv, " ")
+	if !strings.Contains(j, "-dDEVICEWIDTHPOINTS=841.89 -dDEVICEHEIGHTPOINTS=595.276 -dFIXEDMEDIA -dPDFFitPage -dFitPage") {
+		t.Fatalf("gs argv %q", argv)
+	}
+	img := []string{"img2pdf", "--pagesize", "841.89ptx595.276pt", "--fit", "into", "-o", "/tmp/w/input.pdf", "/in/doc"}
+	if got := NormalizeCommands(r, KindImage); !reflect.DeepEqual(got, [][]string{img}) {
+		t.Fatalf("image: %q", got)
+	}
+	txt := NormalizeCommands(r, KindText)[0]
+	want := []string{"enscript", "-B", "-q", "--encoding=latin1", "--media=A4", "-r", "-o", "/tmp/w/input.ps", "/tmp/w/input.txt"}
+	if !reflect.DeepEqual(txt, want) {
+		t.Fatalf("text: %q", txt)
+	}
+}

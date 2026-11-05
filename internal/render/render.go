@@ -27,6 +27,10 @@ type Request struct {
 	Pages  string // "1-3,5", "4-", or "" for all pages
 	ICC    string // output ICC profile (colour only)
 	TmpDir string // work directory for intermediate and page files
+
+	// Landscape renders on landscape media (paper width and height swapped);
+	// the caller rotates the pages to portrait afterwards.
+	Landscape bool
 }
 
 // PageFile is one rendered page. The receiver must delete Path after use.
@@ -109,6 +113,14 @@ func pts(v float64) string {
 	return strconv.FormatFloat(math.Round(v*1e4)/1e4, 'f', -1, 64)
 }
 
+// mediaPt returns the page size in points, swapped for landscape.
+func (r Request) mediaPt() (w, h float64) {
+	if r.Landscape {
+		return r.Paper.HeightPt, r.Paper.WidthPt
+	}
+	return r.Paper.WidthPt, r.Paper.HeightPt
+}
+
 func (r Request) pdfPath() string {
 	return r.TmpDir + "/input.pdf"
 }
@@ -120,17 +132,23 @@ func NormalizeCommands(r Request, kind Kind) [][]string {
 	toPDF := func(in string) []string {
 		return []string{"gs", "-q", "-dSAFER", "-dBATCH", "-dNOPAUSE", "-sDEVICE=pdfwrite", "-o", pdf, in}
 	}
+	mw, mh := r.mediaPt()
 	switch kind {
 	case KindPS:
 		return [][]string{toPDF(r.Input)}
 	case KindImage:
-		return [][]string{{"img2pdf", "--pagesize", pts(r.Paper.WidthPt) + "ptx" + pts(r.Paper.HeightPt) + "pt",
+		return [][]string{{"img2pdf", "--pagesize", pts(mw) + "ptx" + pts(mh) + "pt",
 			"--fit", "into", "-o", pdf, r.Input}}
 	case KindText:
 		media := enscriptMedia(r.Paper.Name)
 		ps := r.TmpDir + "/input.ps"
+		ens := []string{"enscript", "-B", "-q", "--encoding=latin1", "--media=" + media}
+		if r.Landscape {
+			ens = append(ens, "-r")
+		}
+		ens = append(ens, "-o", ps, r.TmpDir+"/input.txt")
 		return [][]string{
-			{"enscript", "-B", "-q", "--encoding=latin1", "--media=" + media, "-o", ps, r.TmpDir + "/input.txt"},
+			ens,
 			toPDF(ps),
 		}
 	}
@@ -154,9 +172,10 @@ func PageCommand(r Request, pdf string, page int) (argv []string, outPath string
 	if r.Color {
 		ext, dev = "pam", "pamcmyk32"
 	}
+	mw, mh := r.mediaPt()
 	outPath = fmt.Sprintf("%s/p%04d.%s", r.TmpDir, page, ext)
 	argv = []string{"gs", "-q", "-dSAFER", "-dBATCH", "-dNOPAUSE", "-r600",
-		"-dDEVICEWIDTHPOINTS=" + pts(r.Paper.WidthPt), "-dDEVICEHEIGHTPOINTS=" + pts(r.Paper.HeightPt),
+		"-dDEVICEWIDTHPOINTS=" + pts(mw), "-dDEVICEHEIGHTPOINTS=" + pts(mh),
 		"-dFIXEDMEDIA", "-dPDFFitPage", "-dFitPage", "-dAutoRotatePages=/PageByPage",
 		fmt.Sprintf("-dFirstPage=%d", page), fmt.Sprintf("-dLastPage=%d", page),
 		"-sDEVICE=" + dev}

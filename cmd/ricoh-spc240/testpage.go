@@ -60,7 +60,7 @@ func runTestpage(c *common, stdout io.Writer) error {
 func (c *common) checkTestpageFlags() error {
 	set := map[string]bool{}
 	c.fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
-	for _, name := range []string{"paper", "duplex", "type", "tray", "mono", "pages", "copies", "no-collate", "gray-k"} {
+	for _, name := range []string{"paper", "duplex", "type", "tray", "mono", "pages", "copies", "no-collate", "gray-k", "landscape"} {
 		if set[name] {
 			return usagef("testpage: --%s is not supported (the test page is always A4 duplex colour)", name)
 		}

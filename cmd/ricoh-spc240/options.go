@@ -27,7 +27,7 @@ const (
 // common holds the flags shared by print and encode.
 type common struct {
 	fs                                *flag.FlagSet
-	mono, noCollate, grayK            bool
+	mono, noCollate, grayK, landscape bool
 	duplex, pages, paper, ptype, tray string
 	quality, assets, printer, output  string
 	copies                            int
@@ -47,6 +47,7 @@ func newCommon(name string, stderr io.Writer) *common {
 	c.fs.StringVar(&c.tray, "tray", "auto", "input tray")
 	c.fs.StringVar(&c.quality, "quality", "fast", "fast, standard or fine")
 	c.fs.BoolVar(&c.grayK, "gray-k", false, "print neutral colours with black toner only")
+	c.fs.BoolVar(&c.landscape, "landscape", false, "print landscape documents full page (rotated onto portrait paper)")
 	assets := defaultAssets
 	if v := os.Getenv("RICOH_ASSETS"); v != "" {
 		assets = v

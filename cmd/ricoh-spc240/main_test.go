@@ -2,15 +2,20 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"image/png"
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kipavy/ricoh-spc240/internal/ddst"
+	"github.com/kipavy/ricoh-spc240/internal/render"
 )
 
 // A6 printable area at 600 dpi (keeps test pages light).
@@ -262,7 +267,7 @@ func TestValidationBeforeOutputAndRender(t *testing.T) {
 	writePGM(t, page, false)
 	out := filepath.Join(tmp, "existing.ddst")
 	for name, args := range map[string][]string{
-		"print":  {"print", in, "--mono", "--paper", "A6", "--duplex", "long", "--assets", assets, "--output", out},
+		"print":  {"print", in, "--mono", "--paper", "A6", "--duplex", "long", "--landscape", "--assets", assets, "--output", out},
 		"encode": {"encode", page, "--mono", "--paper", "A6", "--duplex", "long", "--assets", assets, "--output", out},
 		"addr":   {"encode", page, "--mono", "--paper", "A6", "--assets", assets, "--printer", " "},
 	} {
@@ -365,7 +370,7 @@ func TestTestpageRejectsLayoutFlags(t *testing.T) {
 	assets := writeScreens(t)
 	out := filepath.Join(t.TempDir(), "x.ddst")
 	for _, fl := range [][]string{{"--paper", "A6"}, {"--duplex", "short"}, {"--type", "plain"},
-		{"--tray", "tray1"}, {"--mono"}, {"--pages", "1"}, {"--copies", "2"}, {"--no-collate"}, {"--gray-k"}} {
+		{"--tray", "tray1"}, {"--mono"}, {"--pages", "1"}, {"--copies", "2"}, {"--no-collate"}, {"--gray-k"}, {"--landscape"}} {
 		args := append([]string{"testpage", "--output", out, "--assets", assets}, fl...)
 		code, _, errs := runCmd(args...)
 		if code != 2 || !strings.Contains(errs, fl[0]+" is not supported") {
@@ -399,5 +404,60 @@ func TestDefaultQualityIsFast(t *testing.T) {
 		if !strings.Contains(out, "bpp=1") {
 			t.Errorf("%s: default quality is not 1 bpp:\n%s", p, out)
 		}
+	}
+}
+
+// A landscape PDF with a black block in its top-left corner must come out
+// portrait (full sheet) with the block at the top-right: the content's top
+// ends up on the right-hand long edge.
+func TestLandscapeEndToEnd(t *testing.T) {
+	if _, err := exec.LookPath("gs"); err != nil {
+		t.Skip("ghostscript not installed")
+	}
+	tmp := t.TempDir()
+	in := filepath.Join(tmp, "land.pdf")
+	pdf := "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n" +
+		"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n" +
+		"3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 420 298]/Contents 4 0 R>>endobj\n"
+	body := "0 g 0 198 100 100 re f"
+	pdf += fmt.Sprintf("4 0 obj<</Length %d>>stream\n%s\nendstream endobj\ntrailer<</Root 1 0 R>>\n%%%%EOF\n", len(body), body)
+	if err := os.WriteFile(in, []byte(pdf), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a6, err := ddst.LookupPaper("A6")
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, errc := render.Render(context.Background(), render.Request{Input: in, Paper: a6,
+		TmpDir: tmp, Landscape: true})
+	pf, ok := <-files
+	if !ok {
+		t.Fatal(<-errc)
+	}
+	p, err := readPage(pf.Path, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p = p.Rotate90CW()
+	if p.W >= p.H {
+		t.Fatalf("not portrait: %dx%d", p.W, p.H)
+	}
+	ink := func(x0, y0, x1, y1 int) bool {
+		for y := y0; y < y1; y++ {
+			for x := x0; x < x1; x++ {
+				if p.Pix[y*p.W+x] != 0 {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	if !ink(p.W*3/4, 0, p.W, p.H/4) {
+		t.Error("no ink at the top-right")
+	}
+	if ink(0, 0, p.W/2, p.H) || ink(0, p.H/2, p.W, p.H) {
+		t.Error("ink outside the top-right")
+	}
+	for range files {
 	}
 }

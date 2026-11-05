@@ -221,3 +221,16 @@ func (p *Page) Rotate180() {
 		}
 	}
 }
+
+// Rotate90CW returns a new page rotated 90 degrees clockwise: the source top
+// edge becomes the right edge. Result pixel (x, y) is source (y, H-1-x).
+func (p *Page) Rotate90CW() *Page {
+	ch := p.Channels
+	out := &Page{W: p.H, H: p.W, Channels: ch, Pix: make([]byte, len(p.Pix))}
+	for y := 0; y < out.H; y++ {
+		for x := 0; x < out.W; x++ {
+			copy(out.Pix[(y*out.W+x)*ch:(y*out.W+x+1)*ch], p.Pix[((p.H-1-x)*p.W+y)*ch:((p.H-1-x)*p.W+y+1)*ch])
+		}
+	}
+	return out
+}

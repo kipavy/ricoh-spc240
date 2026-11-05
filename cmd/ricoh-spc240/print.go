@@ -55,7 +55,7 @@ func runPrint(c *common, input string, stdout io.Writer) error {
 	defer os.RemoveAll(tmp)
 	rctx, cancel := context.WithCancel(ctx)
 	files, errc := render.Render(rctx, render.Request{Input: input, Paper: o.Paper,
-		Color: o.Color, Pages: c.pages, ICC: icc, TmpDir: tmp})
+		Color: o.Color, Pages: c.pages, ICC: icc, TmpDir: tmp, Landscape: c.landscape})
 	defer func() { // stop the renderer and wait for it before removing tmp
 		cancel()
 		for pf := range files {
@@ -70,7 +70,11 @@ func runPrint(c *common, input string, stdout io.Writer) error {
 			}
 			return nil, io.EOF
 		}
-		return readPage(pf.Path, true)
+		p, err := readPage(pf.Path, true)
+		if err == nil && c.landscape {
+			p = p.Rotate90CW() // landscape render -> portrait sheet
+		}
+		return p, err
 	}
 	return c.writeJob(ctx, stdout, o, next)
 }
