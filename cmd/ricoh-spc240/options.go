@@ -20,8 +20,7 @@ import (
 )
 
 const (
-	defaultAssets  = "/usr/share/ricoh-spc240"
-	defaultPrinter = "192.168.1.23:9100"
+	defaultAssets = "/usr/share/ricoh-spc240"
 )
 
 // common holds the flags shared by print and encode.
@@ -53,7 +52,7 @@ func newCommon(name string, stderr io.Writer) *common {
 		assets = v
 	}
 	c.fs.StringVar(&c.assets, "assets", assets, "directory with screens/ and ricoh-c240dn.icc")
-	printer := defaultPrinter
+	printer := ""
 	if v := os.Getenv("RICOH_PRINTER"); v != "" {
 		printer = v
 	}
@@ -142,6 +141,9 @@ func (c *common) jobOptions(title string) (ddst.Options, error) {
 		return o, usageError{err}
 	}
 	if c.output == "" {
+		if c.printer == "" {
+			return o, usagef("no printer: pass --printer HOST[:PORT], set RICOH_PRINTER, or use --output FILE")
+		}
 		if c.addr, err = send.NormalizeAddr(c.printer); err != nil {
 			return o, usageError{err}
 		}
