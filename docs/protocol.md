@@ -37,7 +37,7 @@ Cancel: the 16 bytes `"GDIC CANCEL     "` are sent instead of finishing. [mac]
 | 0 | 4 | `"GDIJ"` |
 | 4 | 4 | 120 (header length) |
 | 8 | 2 | 100 (constant) |
-| 10 | 2 | number of copies |
+| 10 | 2 | number of copies the printer makes (§3.2) |
 | 12 | 4 | 0 |
 | 16 | 2 | flags: `0x0200` = duplex, `0x0008` = collate |
 | 18 | 2 | 168 (length of the following GJET) |
@@ -51,8 +51,8 @@ Cancel: the 16 bytes `"GDIC CANCEL     "` are sent instead of finishing. [mac]
 | 56 | 64 | job title, NUL padded |
 
 **Windows driver v1.14 differences [win]:** offset 8 = 1 (not 100), timestamp
-0, copies always 1 (copies are sent as repeated pages, collate flag `0x0008`
-set), host/user empty, GJET bytes 148–151 = `01 01 01 01`. Both variants are
+0, copies 1 except for uncollated simplex jobs (§3.2), collate flag `0x0008`
+set for collated copies, host/user empty, GJET bytes 148–151 = `01 01 01 01`. Both variants are
 self-consistent. **Our writer reproduces the Windows layout byte for byte**
 (GDIJ, GJET, GDIP, GDIB, JBIG options and padding), so that its output can be
 compared exactly with captures of the official Windows driver. Only the job
@@ -61,6 +61,13 @@ title differs.
 ### 3.1 Timestamp
 `day<<27 | month<<23 | (year−1980)<<16 | (second/2)<<11 | minute<<5 | hour`
 (month 1–12). [mac — taken from the disassembly of `-[NSCalendarDate destinyDate]`]
+
+### 3.2 Copies [win]
+Uncollated simplex copies: each page is sent once and the copies field (offset 10)
+holds N, flags `0x0000`; the printer repeats each page itself. Collated copies:
+copies field 1, flag `0x0008`, and Windows replays the whole document N times.
+Duplex + uncollated is treated as collated (copies 1, document replayed).
+
 
 ## 4. GJET — job extension (168 bytes) [mac]
 
@@ -90,7 +97,7 @@ title differs.
 | 33 | 1 | side: 1 = simplex, 5 = duplex front, 0x0D = duplex back |
 | 34 | 2 | page number (0-based, see §6 for duplex) |
 | 36 | 18 | 0 |
-| 54 | 2 | number of bands = ceil(height / 256) |
+| 54 | 2 | number of bands = ceil(R / 256), R = declared height − 2 (real rows) |
 | 56 | 4 | media width in µm (= points / 72 × 25.4 × 1000, truncated) |
 | 60 | 4 | media height in µm |
 
@@ -99,15 +106,24 @@ page numbers are **1-based** (simplex page n → n); the raster is the printable
 area only: `width = roundup32(page_px − 200)`, `height ≈ page_px − 200`
 (≈ 4.2 mm margin each side at 600 dpi). Measured: A4 4768 × 6816,
 Letter 4928 × 6402, A5 3296 × 4762. The macOS driver sends the size CUPS gives
-it (PPD imageable area). **Our choice:** printable area as Windows does
-(A4 → 4768 × 6816), page numbers 1-based.
+it (PPD imageable area).
+
+**[win] phantom lines:** the declared height is **2 lines more** than the
+rows actually encoded. With R real rows (`R = round(media height µm × 600 /
+25400) − 200`: A4 6814, A5 4760, Letter 6400) the GDIP height is `R + 2`
+and the band count `ceil(R / 256)` (A4 27, A5 19, Letter 25). The 2 extra
+lines appear only in the declared size of the short band (§7); no JBIG
+image encodes them. **Our choice:** same as Windows (`ddst.PageRaster`
+gives W × R; A4 → 4768 × 6814 rows, declared 6816), page numbers 1-based.
 
 ### 5.1 Paper size codes
-Letter 1, Legal 5, Ledger 0x11, Executive 7, Half Letter 6, A3 8, **A4 9**,
-A5 0x0B, A6 0x46, B4 0x0C, JIS B5 0x0D, B6 0x58, FS 0x10, Folio 0x0F,
+Supported by this implementation: Letter 1, Legal 5, Executive 7, Half Letter 6,
+**A4 9**, A5 0x0B, A6 0x46, JIS B5 0x0D, B6 0x58, FS 0x10, Folio 0x0F,
 Foolscap 0x0E, Env #10 0x14, Monarch 0x25, Env DL 0x1B, Env C5 0x1C,
-Env C6 0x1F, 8K 0x5C, 16K 0x5D, Postcard 0x2B, Reply-paid postcard 0x45,
-custom 0xFF.
+Env C6 0x1F, 16K 0x5D, Postcard 0x2B, Reply-paid postcard 0x45, custom 0xFF.
+
+Codes known from the Windows driver but not supported by this model (the
+SP C240DN feeds up to Legal): Ledger 0x11, A3 8, B4 0x0C, 8K 0x5C.
 
 ### 5.2 Paper type codes
 PlainRecycled 0 (driver default), Plain 1, Plain90 (thick 1) 0x10,
@@ -135,18 +151,22 @@ Cardstock, Labels, Envelope.
   does not set `DestinyFlipDuplex`). With the PPD option `Rotated=True` the page
   is rotated 180° (rows reversed and each row mirrored).
 * **[win] confirmed:** back page sent first (`side 0x0D`, page number 2), then
-  front (`side 5`, page number 1). For **short-edge** binding the driver
-  **rotates the back page 180°** itself (there is no tumble flag in the
-  stream); long-edge back pages are not rotated. With an odd page count the
+  front (`side 5`, page number 1). For **long-edge** binding the driver
+  **rotates the back page 180°** itself (there is no binding flag in the
+  stream); **short-edge**
+  back pages are not rotated. A rotated page is banded so that the short
+  band comes **first**: it is the unrotated page's bands sent in reverse
+  order, each rotated 180° (c2_color_long back: `1:160 0:256 … 2:256`,
+  front `1:256 … 2:160`, as `flags:lines`). With an odd page count the
   Windows driver sends the last page as **simplex** (`side 1`) instead of
   adding a blank back. **Our choice:** follow Windows (1-based numbers, last
-  odd page simplex, short-edge back rotated 180°).
+  odd page simplex, long-edge back rotated 180°).
 * A page with a single plane (K only) is accepted inside a colour job [win:
   blank pages are sent with `planes = 1`].
 
 ## 7. GDIB — band header (32 bytes) + data [mac]
 
-Bands are 256 lines high (last band shorter).
+Bands are 256 lines high (last band shorter; see §7.1 for the Windows layout).
 
 | Offset | Size | Value |
 |---|---|---|
@@ -158,7 +178,7 @@ Bands are 256 lines high (last band shorter).
 | 16 | 4 | length of M data |
 | 20 | 4 | length of C data |
 | 24 | 2 | row width in bits (same as GDIP offset 12) |
-| 26 | 2 | lines in this band |
+| 26 | 2 | lines in this band (declared; [win] short band = encoded rows + 2) |
 | 28 | 2 | 0 |
 | 30 | 1 | 1 on the last band if the whole page was **blank** (no non-zero raster byte), else 0 |
 | 31 | 1 | 0 |
@@ -179,13 +199,21 @@ Each plane of each band is an independent JBIG1 (ITU-T T.85) bi-level image:
   data are **identical to the reference encoder jbigkit**
   (`pbmtojbg -q -s 256 -m 0 -p 64 -o 3`) except that Windows keeps the
   coder's trailing zero bytes before the final `FF 02` (T.85 allows dropping
-  them; jbigkit drops them). After `FF 02` Windows pads with `00` or `FF`
+  them; jbigkit drops them) and that **L0 = YD** (min(256, encoded rows):
+  158 on the A4 short band, 256 elsewhere) where jbigkit always writes
+  256. After `FF 02` Windows pads with `00` or `FF`
   bytes to a length that is a multiple of 8.
-  **Our choice:** options 0x40, MX 0, standard T.85 output identical to
+  **Our choice:** options 0x40, MX 0, L0 = band height, standard T.85
+  output otherwise identical to
   jbigkit (trailing zeros dropped), then `00` padding to a multiple of 8.
-* Bands are 256 lines; Windows sometimes makes the last band slightly taller
-  (Letter: 24 × 256 + 258). We always use 256-line bands with a shorter last
-  band, as the macOS driver does.
+* **[win] band heights:** bands hold 256 real rows except the remainder
+  band (`R mod 256` rows, or 256 when R is a multiple of 256). The
+  remainder band is the last one sent, or the first on a rotated long-edge
+  back (§6). It **declares** `real + 2` lines in GDIB offset 26 while each
+  of its JBIG images has `YD = real`: A4 160 / 158, A5 154 / 152, Letter
+  (25 × 256 rows) 258 / 256 on its last band (Letter: 24 × 256 + 258).
+  Flags stay bit 0 on the first band sent, bit 1 on the last, whatever
+  their heights. **Our choice:** identical.
 
 ## 8. Raster preparation [mac]
 
