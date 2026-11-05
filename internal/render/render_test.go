@@ -83,14 +83,14 @@ func TestNormalizeCommands(t *testing.T) {
 	}
 	txt := NormalizeCommands(r, KindText)
 	wantTxt := [][]string{
-		{"enscript", "-B", "-q", "--media=A4", "-o", "/tmp/w/input.ps", "/in/doc"},
+		{"enscript", "-B", "-q", "--encoding=latin1", "--media=A4", "-o", "/tmp/w/input.ps", "/tmp/w/input.txt"},
 		{"gs", "-q", "-dSAFER", "-dBATCH", "-dNOPAUSE", "-sDEVICE=pdfwrite", "-o", "/tmp/w/input.pdf", "/tmp/w/input.ps"},
 	}
 	if !reflect.DeepEqual(txt, wantTxt) {
 		t.Fatalf("text: %q", txt)
 	}
 	r.Paper.Name = ""
-	if NormalizeCommands(r, KindText)[0][3] != "--media=A4" {
+	if NormalizeCommands(r, KindText)[0][4] != "--media=A4" {
 		t.Fatal("default media")
 	}
 }
@@ -236,4 +236,41 @@ func findDefaultICC() string {
 		}
 	}
 	return ""
+}
+
+func TestToLatin1(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{"Été", "\xC9t\xE9"},
+		{"œuf", "oeuf"},
+		{"Œuvre", "OEuvre"},
+		{"l’été", "l'\xE9t\xE9"},
+		{"“a” – b — c…", "\"a\" - b - c..."},
+		{"€5", "EUR5"},
+		{"a b", "a b"},
+		{"hi 😀!", "hi ?!"},
+		{"\xEF\xBB\xBFbom", "bom"},
+	} {
+		if got := string(toLatin1([]byte(c.in))); got != c.want {
+			t.Errorf("%q: got %q want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestEnscriptMedia(t *testing.T) {
+	for in, want := range map[string]string{
+		"A4": "A4", "a3": "A3", "A5": "A5", "Letter": "Letter", "LEGAL": "Legal",
+		"Executive": "Executive", "B5": "A4", "": "A4", "A6": "A4",
+	} {
+		if got := enscriptMedia(in); got != want {
+			t.Errorf("%q: got %q want %q", in, got, want)
+		}
+	}
+}
+
+func TestDetectEmpty(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "e.txt")
+	os.WriteFile(p, nil, 0o644)
+	if _, err := Detect(p); err == nil || !strings.Contains(err.Error(), "empty input file") {
+		t.Fatalf("err = %v", err)
+	}
 }

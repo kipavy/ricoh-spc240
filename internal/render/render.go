@@ -57,6 +57,9 @@ func Detect(path string) (Kind, error) {
 	defer f.Close()
 	buf := make([]byte, 8192)
 	n, _ := f.Read(buf)
+	if n == 0 {
+		return 0, fmt.Errorf("render: empty input file: %s", path)
+	}
 	buf = buf[:n]
 	ext := strings.ToLower(filepath.Ext(path))
 
@@ -124,13 +127,10 @@ func NormalizeCommands(r Request, kind Kind) [][]string {
 		return [][]string{{"img2pdf", "--pagesize", pts(r.Paper.WidthPt) + "ptx" + pts(r.Paper.HeightPt) + "pt",
 			"--fit", "into", "-o", pdf, r.Input}}
 	case KindText:
-		media := r.Paper.Name
-		if media == "" {
-			media = "A4"
-		}
+		media := enscriptMedia(r.Paper.Name)
 		ps := r.TmpDir + "/input.ps"
 		return [][]string{
-			{"enscript", "-B", "-q", "--media=" + media, "-o", ps, r.Input},
+			{"enscript", "-B", "-q", "--encoding=latin1", "--media=" + media, "-o", ps, r.TmpDir + "/input.txt"},
 			toPDF(ps),
 		}
 	}
@@ -223,7 +223,9 @@ func run(ctx context.Context, argv []string) ([]byte, error) {
 // Render normalises the input to PDF and renders the selected pages one at a
 // time. A page is only started once the previous PageFile has been received,
 // so at most one finished page file waits on disk. The PageFile channel is
-// closed when done; at most one error is sent.
+// closed when done; at most one error is sent. The consumer must keep reading
+// the PageFile channel until it closes, or cancel ctx; otherwise the render
+// goroutine blocks.
 func Render(ctx context.Context, r Request) (<-chan PageFile, <-chan error) {
 	out := make(chan PageFile)
 	errc := make(chan error, 1)
@@ -250,6 +252,11 @@ func render(ctx context.Context, r Request, out chan<- PageFile) error {
 	for tool := range need {
 		if _, err := exec.LookPath(tool); err != nil {
 			return fmt.Errorf("render: required tool %q not found on PATH", tool)
+		}
+	}
+	if kind == KindText {
+		if err := prepareText(r); err != nil {
+			return err
 		}
 	}
 	pdf := r.Input
@@ -286,4 +293,47 @@ func render(ctx context.Context, r Request, out chan<- PageFile) error {
 		}
 	}
 	return nil
+}
+
+// enscriptMedia maps a paper name to a media enscript ships; the real page
+// size is applied later by gs/img2pdf, so anything else falls back to A4.
+func enscriptMedia(name string) string {
+	for _, m := range []string{"A3", "A4", "A5", "Letter", "Legal", "Executive"} {
+		if strings.EqualFold(name, m) {
+			return m
+		}
+	}
+	return "A4"
+}
+
+var latin1Subst = map[rune]string{
+	'‘': "'", '’': "'", '“': "\"", '”': "\"",
+	'–': "-", '—': "-", '…': "...", ' ': " ",
+	'€': "EUR", 'œ': "oe", 'Œ': "OE",
+}
+
+// toLatin1 converts UTF-8 text to Latin-1 (enscript 1.6 has no UTF-8
+// support), transliterating common typographic runes and using '?' otherwise.
+func toLatin1(in []byte) []byte {
+	in = bytes.TrimPrefix(in, []byte("\xEF\xBB\xBF"))
+	out := make([]byte, 0, len(in))
+	for _, r := range string(in) {
+		switch {
+		case r <= 0xFF:
+			out = append(out, byte(r))
+		case latin1Subst[r] != "":
+			out = append(out, latin1Subst[r]...)
+		default:
+			out = append(out, '?')
+		}
+	}
+	return out
+}
+
+func prepareText(r Request) error {
+	b, err := os.ReadFile(r.Input)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(r.TmpDir+"/input.txt", toLatin1(b), 0o644)
 }
