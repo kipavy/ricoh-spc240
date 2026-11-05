@@ -14,6 +14,7 @@ const usage = `usage: ricoh-spc240 <command> [flags]
 commands:
   print FILE         render FILE and send it to the printer (or --output FILE.ddst)
   encode PAGE...     encode PAM/PGM page rasters (already page-sized) into a job
+  testpage           one-sheet duplex paper test (needs --output or --printer)
   decode FILE.ddst   list the records of a stream (--png DIR writes page previews)
 
 run "ricoh-spc240 <command> -h" for the flags of a command.
@@ -35,6 +36,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdPrint(args[1:], stdout, stderr)
 	case "encode":
 		return cmdEncode(args[1:], stdout, stderr)
+	case "testpage":
+		return cmdTestpage(args[1:], stdout, stderr)
 	case "decode":
 		return cmdDecode(args[1:], stdout, stderr)
 	case "-h", "--help", "help":

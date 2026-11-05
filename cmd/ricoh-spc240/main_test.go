@@ -321,3 +321,37 @@ func TestAbortAfterConnectSendsNoJIDG(t *testing.T) {
 		t.Errorf("partial output file not removed: %v", err)
 	}
 }
+
+func TestTestpageOutputThenDecode(t *testing.T) {
+	assets := writeScreens(t)
+	path := filepath.Join(t.TempDir(), "tp.ddst")
+	if code, out, errs := runCmd("testpage", "--output", path, "--assets", assets, "--quality", "fast"); code != 0 {
+		t.Fatalf("testpage exit %d: %s%s", code, out, errs)
+	}
+	code, out, errs := runCmd("decode", path)
+	if code != 0 {
+		t.Fatalf("decode exit %d: %s", code, errs)
+	}
+	var gdip []string
+	for _, l := range strings.Split(out, "\n") {
+		if strings.HasPrefix(l, "GDIP @") {
+			gdip = append(gdip, l)
+		}
+	}
+	if len(gdip) != 2 {
+		t.Fatalf("want 2 GDIP, got %d:\n%s", len(gdip), out)
+	}
+	if !strings.Contains(gdip[0], "side=0x0d") || !strings.Contains(gdip[0], "pageno=2") || !strings.Contains(gdip[0], "planes=1") {
+		t.Errorf("first record should be back/pageno 2/planes=1: %s", gdip[0])
+	}
+	if !strings.Contains(gdip[1], "side=0x05") || !strings.Contains(gdip[1], "pageno=1") || !strings.Contains(gdip[1], "planes=4") {
+		t.Errorf("second record should be front/pageno 1/planes=4: %s", gdip[1])
+	}
+}
+
+func TestTestpageNeedsExplicitDestination(t *testing.T) {
+	code, _, errs := runCmd("testpage", "--assets", writeScreens(t))
+	if code != 2 || !strings.Contains(errs, "testpage needs --output FILE or --printer ADDR") {
+		t.Errorf("exit %d, stderr %q", code, errs)
+	}
+}
