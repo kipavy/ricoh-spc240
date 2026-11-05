@@ -91,7 +91,7 @@ func TestEncodeToOutputFile(t *testing.T) {
 		t.Errorf("want 4 GDIP (2 pages x 2 copies), got %d:\n%s", n, out)
 	}
 	for _, want := range []string{"GDIJ @0", `title="p1.pgm"`, "color=false", "bpp=1",
-		"size=2304x3296", "planes=1", "bands=13", "GDIB x13", "JIDG @"} {
+		"size=2304x3298", "planes=1", "bands=13", "GDIB x13", "JIDG @"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("decode output lacks %q:\n%s", want, out)
 		}

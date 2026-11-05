@@ -3,11 +3,13 @@ package testpage
 import (
 	"testing"
 
+	"github.com/kipavy/ricoh-spc240/internal/ddst"
 	"github.com/kipavy/ricoh-spc240/internal/raster"
 )
 
 func TestPagesGeometry(t *testing.T) {
-	w, h := raster.PrintableArea(595.28, 841.89, 600)
+	a4p, _ := ddst.LookupPaper("A4")
+	w, h := ddst.PageRaster(a4p)
 	pp := Pages()
 	if pp[0].Channels != 4 || pp[1].Channels != 1 {
 		t.Fatalf("channels front=%d back=%d", pp[0].Channels, pp[1].Channels)

@@ -146,7 +146,10 @@ func writePagePNG(name string, hdr []byte, bands []ddst.Record, bpp int) error {
 	var ink [4][]bool
 	y0 := 0
 	for _, b := range bands {
+		// A band may declare 2 phantom lines more than its planes encode
+		// (Windows does it on the short band, and so do we).
 		lines := be16(b.Header[26:])
+		enc := -1
 		for k, data := range b.Planes {
 			if len(data) == 0 {
 				continue
@@ -155,7 +158,10 @@ func writePagePNG(name string, hdr []byte, bands []ddst.Record, bpp int) error {
 			if err != nil {
 				return fmt.Errorf("plane %c: %w", "KYMC"[k], err)
 			}
-			if h != lines || w != width*bpp || y0+lines > height {
+			if enc < 0 && (h == lines || h == lines-2) {
+				enc = h
+			}
+			if h != enc || w != width*bpp || y0+h > height {
 				return fmt.Errorf("plane %c is %dx%d, want %dx%d", "KYMC"[k], w, h, width*bpp, lines)
 			}
 			if ink[k] == nil {
@@ -173,8 +179,12 @@ func writePagePNG(name string, hdr []byte, bands []ddst.Record, bpp int) error {
 				}
 			}
 		}
-		y0 += lines
+		if enc < 0 {
+			enc = lines
+		}
+		y0 += enc
 	}
+	height = min(height, y0) // drop the phantom lines
 	at := func(k, i int) float64 {
 		if ink[k] != nil && ink[k][i] {
 			return 1

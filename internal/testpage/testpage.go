@@ -6,22 +6,31 @@ package testpage
 import (
 	"fmt"
 
+	"github.com/kipavy/ricoh-spc240/internal/ddst"
 	"github.com/kipavy/ricoh-spc240/internal/raster"
 )
 
 const (
-	dpi   = 600
 	mm10  = 236       // 10 mm at 600 dpi
 	arm   = 118       // 5 mm
 	rampW = 12 * mm10 // 120 mm
 	rampH = 189       // 8 mm
 )
 
+// a4 is the test page paper.
+func a4() ddst.PaperSize {
+	p, err := ddst.LookupPaper("A4")
+	if err != nil {
+		panic(err)
+	}
+	return p
+}
+
 // canvas wraps a page for drawing with per-channel ink values.
 type canvas struct{ *raster.Page }
 
 func newCanvas(channels int) canvas {
-	w, h := raster.PrintableArea(595.28, 841.89, dpi) // A4
+	w, h := ddst.PageRaster(a4())
 	return canvas{&raster.Page{W: w, H: h, Channels: channels, Pix: make([]byte, w*h*channels)}}
 }
 

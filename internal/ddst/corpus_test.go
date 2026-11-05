@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kipavy/ricoh-spc240/internal/halftone"
@@ -18,7 +19,8 @@ import (
 // and every JBIG stream up to its final FF 02 once the zero bytes Windows
 // keeps before it are stripped. Planes are fed back through identity
 // screens, so halftoning is bypassed. The stream carries no binding edge:
-// duplex captures pass if they match as long edge or as short edge.
+// a duplex capture named *long* / *short* must match that mode, any other
+// passes if it matches either.
 func TestAgainstWindowsCorpus(t *testing.T) {
 	dir := os.Getenv("RICOH_CORPUS")
 	if dir == "" {
@@ -34,12 +36,12 @@ func TestAgainstWindowsCorpus(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			compareWithCorpus(t, data)
+			compareWithCorpus(t, filepath.Base(f), data)
 		})
 	}
 }
 
-func compareWithCorpus(t *testing.T, data []byte) {
+func compareWithCorpus(t *testing.T, name string, data []byte) {
 	theirs, err := Parse(bytes.NewReader(data))
 	if err != nil {
 		t.Fatal(err)
@@ -60,12 +62,13 @@ func compareWithCorpus(t *testing.T, data []byte) {
 	if !ok {
 		t.Skipf("paper code %#x with media %x not in our table", ph[8], ph[56:64])
 	}
-	w, h := raster.PrintableArea(paper.WidthPt, paper.HeightPt, 600)
+	// h real rows; GDIP declares h+2 (phantom lines).
+	w, h := PageRaster(paper)
 	for _, p := range sent {
 		wb, ht := int(binary.BigEndian.Uint16(p.hdr[12:])), int(binary.BigEndian.Uint16(p.hdr[14:]))
-		if wb != w*bpp || ht != h || len(p.bands) != (h+255)/256 {
-			t.Skipf("raster %d bits x %d lines in %d bands differs from our %s area %dx%d (known Windows divergence)",
-				wb, ht, len(p.bands), paper.Name, w, h)
+		if wb != w*bpp || ht != h+phantomLines || len(p.bands) != (h+255)/256 {
+			t.Fatalf("raster %d bits x %d lines in %d bands, want %s %d bits x %d (+%d) in %d",
+				wb, ht, len(p.bands), paper.Name, w*bpp, h, phantomLines, (h+255)/256)
 		}
 	}
 
@@ -109,16 +112,24 @@ func compareWithCorpus(t *testing.T, data []byte) {
 		Color: jh[24] == 1, Quality: halftone.Quality(bpp), Copies: copies, Collate: collate,
 		Screens: identityScreens(t, bpp)}
 	modes := []Duplex{DuplexNone}
-	if duplex {
+	lname := strings.ToLower(name)
+	switch {
+	case !duplex:
+	case strings.Contains(lname, "long"):
+		modes = []Duplex{DuplexLongEdge}
+	case strings.Contains(lname, "short"):
+		modes = []Duplex{DuplexShortEdge}
+	default:
 		modes = []Duplex{DuplexLongEdge, DuplexShortEdge}
 	}
 	var diffs []string
 	for _, mode := range modes {
 		o.Duplex = mode
 		var pages []*raster.Page
-		for i, p := range doc {
+		for _, p := range doc {
+			// The decoded planes hold the h real rows as sent.
 			pg := rasterOf(t, p, w, h, bpp)
-			if mode == DuplexShortEdge && i%2 == 1 {
+			if mode == DuplexLongEdge && p.side() == byte(SideBack) {
 				pg.Rotate180() // undo the rotation Windows applied
 			}
 			pages = append(pages, pg)
@@ -222,4 +233,35 @@ func jbigCore(s []byte) []byte {
 		head = head[:len(head)-1]
 	}
 	return append(append([]byte{}, head...), 0xFF, 0x02)
+}
+
+// The corpus comparison accepts our own output (a stand-in capture with
+// Windows' layout), so its page reconstruction (phantom lines, rotated
+// long-edge backs) is exercised without the corpus.
+func TestCorpusComparisonOnOwnOutput(t *testing.T) {
+	if testing.Short() {
+		t.Skip("several A4 pages")
+	}
+	for _, c := range []struct {
+		name   string
+		duplex Duplex
+	}{{"own_simplex.prn", DuplexNone}, {"own_long.prn", DuplexLongEdge}, {"own_short.prn", DuplexShortEdge}} {
+		t.Run(c.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			j, err := NewJob(&buf, opts(t, false, c.duplex))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, p := range []*raster.Page{page(1, 0, [2]int{1, 1}, [2]int{9, a4H - 3}),
+				page(1, 0, [2]int{2, 2}, [2]int{a4W - 5, a4H - 1}), page(1, 0, [2]int{3, 3})} {
+				if err := j.AddPage(p); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := j.Close(); err != nil {
+				t.Fatal(err)
+			}
+			compareWithCorpus(t, c.name, buf.Bytes())
+		})
+	}
 }

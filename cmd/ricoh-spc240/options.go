@@ -215,7 +215,7 @@ func (c *common) writeJob(ctx context.Context, stdout io.Writer, o ddst.Options,
 		s.abort()
 		return err
 	}
-	w, h := raster.PrintableArea(o.Paper.WidthPt, o.Paper.HeightPt, 600)
+	w, h := ddst.PageRaster(o.Paper)
 	pages := 0
 	for {
 		if ctx.Err() != nil {

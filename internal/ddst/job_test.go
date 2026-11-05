@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"runtime"
 	"strings"
@@ -14,8 +15,9 @@ import (
 	"github.com/kipavy/ricoh-spc240/internal/raster"
 )
 
-// A4 printable area at 600 dpi (Windows).
-const a4W, a4H, a4Bands = 4768, 6816, 27
+// A4 at 600 dpi as Windows sends it: 6814 real rows in 27 bands (26 x 256
+// + 158), GDIP declaring 6816 lines and the short band 160.
+const a4W, a4H, a4Decl, a4Bands, a4Rem = 4768, 6814, 6816, 27, 158
 
 // identityScreens returns 1x1 synthetic screens of the given depth mapping
 // level v to v & (2^depth-1), so a page of small levels passes through
@@ -52,11 +54,68 @@ func opts(t testing.TB, color bool, d Duplex) Options {
 
 // page returns an A4 page with ink 1 in channel ch at the given pixels.
 func page(channels, ch int, pts ...[2]int) *raster.Page {
-	p := &raster.Page{W: a4W, H: a4H, Channels: channels, Pix: make([]byte, a4W*a4H*channels)}
+	return sizedPage(a4W, a4H, channels, ch, pts...)
+}
+
+func sizedPage(w, h, channels, ch int, pts ...[2]int) *raster.Page {
+	p := &raster.Page{W: w, H: h, Channels: channels, Pix: make([]byte, w*h*channels)}
 	for _, xy := range pts {
-		p.Pix[(xy[1]*a4W+xy[0])*channels+ch] = 1
+		p.Pix[(xy[1]*w+xy[0])*channels+ch] = 1
 	}
 	return p
+}
+
+// band is one GDIB as sent: flags, declared lines and the JBIG YD of K.
+type band struct{ flags, lines, yd int }
+
+func bandList(t testing.TB, p sentPage) []band {
+	t.Helper()
+	var out []band
+	for _, b := range p.bands {
+		_, yd, _, err := jbig.Decode(b.Planes[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, band{int(b.Header[7]), int(binary.BigEndian.Uint16(b.Header[26:])), yd})
+	}
+	return out
+}
+
+// wantBands builds the Windows band list for r real rows: 256-row bands,
+// the remainder band declared 2 lines more than it encodes, placed last
+// (normal) or first (rotated back page).
+func wantBands(r int, rotated bool) []band {
+	n := (r + 255) / 256
+	rem := r - (n-1)*256
+	var out []band
+	for i := 0; i < n; i++ {
+		b := band{lines: 256, yd: 256}
+		if (!rotated && i == n-1) || (rotated && i == 0) {
+			b = band{lines: rem + 2, yd: rem}
+		}
+		if i == 0 {
+			b.flags |= 1
+		}
+		if i == n-1 {
+			b.flags |= 2
+		}
+		out = append(out, b)
+	}
+	return out
+}
+
+func checkBands(t testing.TB, what string, p sentPage, want []band) {
+	t.Helper()
+	got := bandList(t, p)
+	if len(got) != len(want) {
+		t.Errorf("%s: %d bands, want %d", what, len(got), len(want))
+		return
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Errorf("%s: band %d = %+v, want %+v", what, i, got[i], want[i])
+		}
+	}
 }
 
 // run writes the pages as one job and parses the result.
@@ -166,7 +225,7 @@ func TestJobSimplexStructure(t *testing.T) {
 	if recs[1].Kind != "GJET" || !bytes.Equal(recs[1].Header, GJETBytes()) {
 		t.Errorf("GJET = %x", recs[1].Header)
 	}
-	want := PageHeader{Paper: o.Paper, WidthBits: a4W, Height: a4H, Planes: 4, Side: SideSimplex,
+	want := PageHeader{Paper: o.Paper, WidthBits: a4W, Height: a4Decl, Planes: 4, Side: SideSimplex,
 		PageNo: 1, Bands: a4Bands, MediaUM: o.Paper.MediaUM}.Bytes()
 	if recs[2].Kind != "GDIP" || !bytes.Equal(recs[2].Header, want) {
 		t.Errorf("GDIP = %x\nwant   %x", recs[2].Header, want)
@@ -185,7 +244,7 @@ func TestJobSimplexStructure(t *testing.T) {
 		}
 		lines := 256
 		if i == a4Bands-1 {
-			lines = a4H - 26*256
+			lines = a4Rem + 2 // two phantom lines, as Windows declares
 		}
 		if h[7] != flags || binary.BigEndian.Uint16(h[24:]) != a4W || int(binary.BigEndian.Uint16(h[26:])) != lines || h[30] != 0 {
 			t.Errorf("band %d header %x", i, h)
@@ -202,6 +261,7 @@ func TestJobSimplexStructure(t *testing.T) {
 	}
 	// K plane holds the two marks, C/M/Y are empty.
 	p := pagesOf(t, recs)[0]
+	checkBands(t, "simplex", p, wantBands(a4H, false))
 	if got := setBits(plane(t, p, 0), a4W/8); len(got) != 2 || got[0] != [2]int{5, 7} || got[1] != [2]int{a4W - 1, a4H - 1} {
 		t.Errorf("K marks = %v", got)
 	}
@@ -236,13 +296,42 @@ func TestJobDuplexEvenLongEdge(t *testing.T) {
 	if want := [][2]int{{2, 0x0D}, {1, 5}}; !equalOrder(order(ps), want) {
 		t.Fatalf("order %v, want %v", order(ps), want)
 	}
-	// Back is sent first and is not rotated for long edge.
-	if got := setBits(plane(t, ps[0], 0), a4W/8); len(got) != 1 || got[0] != [2]int{a4W - 1, a4H - 1} {
+	// Back is sent first and is rotated 180 for long edge (Windows): the
+	// bottom-right mark ends up top-left, the short band comes first.
+	if got := setBits(plane(t, ps[0], 0), a4W/8); len(got) != 1 || got[0] != [2]int{0, 0} {
 		t.Errorf("back marks = %v", got)
 	}
+	checkBands(t, "long-edge back", ps[0], wantBands(a4H, true))
 	if got := setBits(plane(t, ps[1], 0), a4W/8); len(got) != 1 || got[0] != [2]int{1, 1} {
 		t.Errorf("front marks = %v", got)
 	}
+	checkBands(t, "front", ps[1], wantBands(a4H, false))
+}
+
+// A long-edge back page is the 180° rotation of the page given, pixel for
+// pixel, including marks in the short band and at the band boundaries.
+func TestJobLongEdgeBackIsRotated(t *testing.T) {
+	pts := [][2]int{{0, 0}, {5, 7}, {a4W - 1, 0}, {17, 255}, {18, 256}, {19, a4Rem - 1},
+		{20, a4Rem}, {21, a4H - a4Rem - 1}, {22, a4H - a4Rem}, {a4W - 1, a4H - 1}}
+	recs := run(t, opts(t, true, DuplexLongEdge), page(4, 3), page(4, 3, pts...))
+	back := pagesOf(t, recs)[0]
+	if back.side() != byte(SideBack) {
+		t.Fatalf("first page side %#x", back.side())
+	}
+	got := setBits(plane(t, back, 0), a4W/8)
+	want := map[[2]int]bool{}
+	for _, p := range pts {
+		want[[2]int{a4W - 1 - p[0], a4H - 1 - p[1]}] = true
+	}
+	if len(got) != len(want) {
+		t.Fatalf("back marks = %v, want %v", got, want)
+	}
+	for _, p := range got {
+		if !want[p] {
+			t.Errorf("unexpected back mark %v", p)
+		}
+	}
+	checkBands(t, "long-edge back", back, wantBands(a4H, true))
 }
 
 func TestJobDuplexOddShortEdge(t *testing.T) {
@@ -253,13 +342,69 @@ func TestJobDuplexOddShortEdge(t *testing.T) {
 	if want := [][2]int{{2, 0x0D}, {1, 5}, {3, 1}}; !equalOrder(order(ps), want) {
 		t.Fatalf("order %v, want %v", order(ps), want)
 	}
-	// Short-edge back is rotated 180: bottom-right mark ends up top-left.
-	if got := setBits(plane(t, ps[0], 0), a4W/8); len(got) != 1 || got[0] != [2]int{0, 0} {
-		t.Errorf("rotated back marks = %v", got)
+	// Short-edge back is not rotated (Windows), its bands are laid out as
+	// the front's.
+	if got := setBits(plane(t, ps[0], 0), a4W/8); len(got) != 1 || got[0] != [2]int{a4W - 1, a4H - 1} {
+		t.Errorf("short-edge back marks = %v", got)
+	}
+	for i, p := range ps {
+		checkBands(t, fmt.Sprintf("short-edge page %d", i), p, wantBands(a4H, false))
 	}
 	// The odd last page is a simplex sheet and is not rotated.
 	if got := setBits(plane(t, ps[2], 0), a4W/8); len(got) != 1 || got[0] != [2]int{2, 2} {
 		t.Errorf("last page marks = %v", got)
+	}
+}
+
+func TestPageRaster(t *testing.T) {
+	// Real rows Windows encodes; GDIP declares 2 more (6816, 4762, 6402).
+	cases := map[string][2]int{"A4": {4768, 6814}, "A5": {3296, 4760}, "Letter": {4928, 6400}}
+	for name, want := range cases {
+		p, _ := LookupPaper(name)
+		if w, h := PageRaster(p); w != want[0] || h != want[1] {
+			t.Errorf("%s: %dx%d, want %dx%d", name, w, h, want[0], want[1])
+		}
+	}
+}
+
+// Letter is 25 full bands of real rows: the last band (first on a rotated
+// back) is declared 258 lines with YD 256. A5 ends with 154 / 152.
+func TestJobBandsLetterAndA5(t *testing.T) {
+	letter, _ := LookupPaper("Letter")
+	a5, _ := LookupPaper("A5")
+	for _, c := range []struct {
+		paper  PaperSize
+		duplex Duplex
+		r      int
+		bands  int
+	}{
+		{letter, DuplexLongEdge, 6400, 25},
+		{letter, DuplexShortEdge, 6400, 25},
+		{a5, DuplexNone, 4760, 19},
+	} {
+		o := opts(t, false, c.duplex)
+		o.Paper = c.paper
+		w, _ := PageRaster(c.paper)
+		pages := []*raster.Page{sizedPage(w, c.r, 1, 0, [2]int{1, 2}), sizedPage(w, c.r, 1, 0, [2]int{3, 4})}
+		ps := pagesOf(t, run(t, o, pages...))
+		for _, p := range ps {
+			name := fmt.Sprintf("%s duplex %d page %d", c.paper.Name, c.duplex, p.no())
+			if ht := int(binary.BigEndian.Uint16(p.hdr[14:])); ht != c.r+2 {
+				t.Errorf("%s: GDIP height %d, want %d", name, ht, c.r+2)
+			}
+			if nb := int(binary.BigEndian.Uint16(p.hdr[54:])); nb != c.bands {
+				t.Errorf("%s: GDIP bands %d, want %d", name, nb, c.bands)
+			}
+			rotated := c.duplex == DuplexLongEdge && p.no() == 2
+			checkBands(t, name, p, wantBands(c.r, rotated))
+			x, y := 2*p.no()-1, 2*p.no()
+			if rotated {
+				x, y = w-1-x, c.r-1-y
+			}
+			if got := setBits(plane(t, p, 0), w/8); len(got) != 1 || got[0] != [2]int{x, y} {
+				t.Errorf("%s: marks %v, want %v", name, got, [2]int{x, y})
+			}
+		}
 	}
 }
 
@@ -352,9 +497,14 @@ func TestJobCopiesCollate(t *testing.T) {
 		if !equalOrder(order(sent), c.want) {
 			t.Errorf("%s: order %v, want %v", c.name, order(sent), c.want)
 		}
-		// Each page number always carries the same content.
+		// Each page number always carries the same content (long-edge backs
+		// rotated 180°).
 		for _, p := range sent {
-			if got := setBits(plane(t, p, 0), a4W/8); len(got) != 1 || got[0] != [2]int{p.no(), p.no()} {
+			want := [2]int{p.no(), p.no()}
+			if p.side() == byte(SideBack) {
+				want = [2]int{a4W - 1 - p.no(), a4H - 1 - p.no()}
+			}
+			if got := setBits(plane(t, p, 0), a4W/8); len(got) != 1 || got[0] != want {
 				t.Errorf("%s: page %d marks %v", c.name, p.no(), got)
 			}
 		}

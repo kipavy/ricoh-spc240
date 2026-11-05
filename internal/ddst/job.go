@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 
 	"github.com/kipavy/ricoh-spc240/internal/halftone"
 	"github.com/kipavy/ricoh-spc240/internal/raster"
@@ -43,7 +44,7 @@ type Job struct {
 	w             io.Writer
 	o             Options
 	bpp           int
-	width, height int // expected page raster, pixels
+	width, height int // expected page raster (real rows), pixels
 	widthBits     int
 	bands         int
 
@@ -98,14 +99,14 @@ func NewJob(w io.Writer, o Options) (*Job, error) {
 			return nil, fmt.Errorf("ddst: %c screen depth %d does not match %d bpp", "CMYK"[i], s.Depth, bpp)
 		}
 	}
-	width, height := raster.PrintableArea(o.Paper.WidthPt, o.Paper.HeightPt, 600)
+	width, height := PageRaster(o.Paper)
 	if width <= 0 || height <= 0 {
 		return nil, fmt.Errorf("ddst: paper %s has no printable area", o.Paper.Name)
 	}
 	j := &Job{w: w, o: o, bpp: bpp, width: width, height: height,
-		widthBits: width * bpp, bands: (height + 255) / 256,
+		widthBits: width * bpp, bands: (height + bandLines - 1) / bandLines,
 		keep: o.Copies > 1 && (o.Collate || o.Duplex != DuplexNone)}
-	if j.widthBits > maxU16 || height > maxU16 {
+	if j.widthBits > maxU16 || height+phantomLines > maxU16 {
 		return nil, fmt.Errorf("ddst: page %dx%d at %d bpp exceeds the header limits", width, height, bpp)
 	}
 	hdr := JobHeader{Title: o.Title, Color: o.Color, BPP: bpp,
@@ -117,10 +118,19 @@ func NewJob(w io.Writer, o Options) (*Job, error) {
 	return j, nil
 }
 
+// PageRaster returns the raster a page must have for paper p at 600 dpi:
+// the printable width (raster.PrintableArea) and the rows the Windows
+// driver really encodes, the GDIP media height minus 200 (A4 6814, A5 4760,
+// Letter 6400). GDIP and the short band declare 2 more lines (protocol §5).
+func PageRaster(p PaperSize) (w, h int) {
+	w, _ = raster.PrintableArea(p.WidthPt, p.HeightPt, 600)
+	h = int(math.Round(float64(p.MediaUM[1])*600/25400)) - 200
+	return w, h
+}
+
 // AddPage halftones, encodes and queues page p, which must already be
-// cropped to the printable area of the paper (raster.PrintableArea at
-// 600 dpi). p may be modified: short-edge duplex back pages are rotated in
-// place, and GrayToK is applied in place.
+// cropped to PageRaster(paper). p may be modified: long-edge duplex back
+// pages are rotated in place, and GrayToK is applied in place.
 func (j *Job) AddPage(p *raster.Page) error {
 	if j.closed {
 		return errors.New("ddst: AddPage after Close")
@@ -135,13 +145,16 @@ func (j *Job) AddPage(p *raster.Page) error {
 	if n > maxU16 {
 		return fmt.Errorf("ddst: too many pages (%d)", n)
 	}
-	if j.o.Duplex == DuplexShortEdge && n%2 == 0 {
-		p.Rotate180() // back side of a sheet turned over its short edge
+	// Like the Windows driver: long-edge backs are rotated 180°,
+	// short-edge backs go as they are.
+	rotated := j.o.Duplex == DuplexLongEdge && n%2 == 0
+	if rotated {
+		p.Rotate180()
 	}
 	if j.o.GrayToK {
 		p.GrayToK()
 	}
-	ep := j.encodePage(p)
+	ep := j.encodePage(p, rotated)
 	j.n = n
 	if j.keep {
 		j.kept = append(j.kept, ep)
@@ -155,7 +168,7 @@ func (j *Job) checkPage(p *raster.Page) error {
 		return errors.New("ddst: nil page")
 	}
 	if p.W != j.width || p.H != j.height {
-		return fmt.Errorf("ddst: page is %dx%d, want the %s printable area %dx%d",
+		return fmt.Errorf("ddst: page is %dx%d, want the %s page raster %dx%d",
 			p.W, p.H, j.o.Paper.Name, j.width, j.height)
 	}
 	switch {
@@ -201,7 +214,7 @@ func (j *Job) endCopy() {
 
 func (j *Job) writePage(ep *encodedPage, side Side, no int) {
 	h := PageHeader{Paper: j.o.Paper, Tray: j.o.Tray, Type: j.o.Type,
-		WidthBits: j.widthBits, Height: j.height, Planes: ep.planes,
+		WidthBits: j.widthBits, Height: j.height + phantomLines, Planes: ep.planes,
 		Side: side, PageNo: no, Bands: j.bands, MediaUM: j.o.Paper.MediaUM}
 	j.write(h.Bytes())
 	j.write(ep.body)
