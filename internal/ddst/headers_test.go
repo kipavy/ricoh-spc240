@@ -2,7 +2,10 @@ package ddst
 
 import (
 	"bytes"
+	"math"
 	"testing"
+
+	"github.com/kipavy/ricoh-spc240/internal/raster"
 )
 
 // expect builds a zero buffer of n bytes with the given offset->bytes patches.
@@ -129,8 +132,11 @@ func TestJIDG(t *testing.T) {
 
 func TestLookupPaper(t *testing.T) {
 	a4, err := LookupPaper("a4")
-	if err != nil || a4.Code != 9 || a4.WidthPt != 595 || a4.HeightPt != 842 || !a4.Duplex {
+	if err != nil || a4.Code != 9 || !a4.Duplex {
 		t.Errorf("A4 = %+v, %v", a4, err)
+	}
+	if !near(a4.WidthPt, 595.2756) || !near(a4.HeightPt, 841.8898) {
+		t.Errorf("A4 points = %v x %v, want 595.2756 x 841.8898", a4.WidthPt, a4.HeightPt)
 	}
 	if a4.MediaUM != [2]uint32{209974, 296926} {
 		t.Errorf("A4 MediaUM = %v", a4.MediaUM)
@@ -139,7 +145,10 @@ func TestLookupPaper(t *testing.T) {
 	if err != nil || a5.Code != 0x0B || a5.Duplex {
 		t.Errorf("A5 = %+v, %v", a5, err)
 	}
-	if l, _ := LookupPaper("LETTER"); l.Code != 1 || l.MediaUM != [2]uint32{215900, 279400} {
+	if !near(a5.WidthPt, 419.5276) || !near(a5.HeightPt, 595.2756) || a5.MediaUM != [2]uint32{147998, 209974} {
+		t.Errorf("A5 = %+v", a5)
+	}
+	if l, _ := LookupPaper("LETTER"); l.Code != 1 || l.MediaUM != [2]uint32{215900, 279400} || !near(l.WidthPt, 612) || !near(l.HeightPt, 792) {
 		t.Errorf("Letter = %+v", l)
 	}
 	if _, err := LookupPaper("nope"); err == nil {
@@ -210,5 +219,19 @@ func TestLookupTray(t *testing.T) {
 	}
 	if _, err := LookupTray("tray9"); err == nil {
 		t.Error("expected error")
+	}
+}
+
+// near compares points to 4 decimals.
+func near(a, b float64) bool { return math.Abs(a-b) < 1e-4 }
+
+// Exact points give the Windows printable area (A4 4768 x 6816).
+func TestPaperPrintableArea(t *testing.T) {
+	cases := map[string][2]int{"A4": {4768, 6816}, "A5": {3296, 4761}, "Letter": {4928, 6400}}
+	for name, want := range cases {
+		p, _ := LookupPaper(name)
+		if w, h := raster.PrintableArea(p.WidthPt, p.HeightPt, 600); w != want[0] || h != want[1] {
+			t.Errorf("%s: %dx%d, want %dx%d", name, w, h, want[0], want[1])
+		}
 	}
 }

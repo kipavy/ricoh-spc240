@@ -6,7 +6,6 @@ package ddst
 import (
 	"encoding/binary"
 	"fmt"
-	"math"
 	"strings"
 )
 
@@ -140,9 +139,17 @@ type PaperSize struct {
 	Duplex            bool      // false if the driver refuses duplex for it
 }
 
+// paper builds an entry whose GDIP media size equals its nominal size.
 func paper(name string, code byte, wUM, hUM uint32, duplex bool) PaperSize {
-	pt := func(um uint32) float64 { return math.Round(float64(um) / 25400 * 72) }
-	return PaperSize{name, code, pt(wUM), pt(hUM), [2]uint32{wUM, hUM}, duplex}
+	return paperMedia(name, code, wUM, hUM, wUM, hUM, duplex)
+}
+
+// paperMedia builds an entry whose GDIP media size (as written by Windows)
+// differs from the nominal size. Points are exact (unrounded) nominal sizes,
+// so PrintableArea gives the Windows raster size (A4: 4768 x 6816).
+func paperMedia(name string, code byte, wNom, hNom, wUM, hUM uint32, duplex bool) PaperSize {
+	pt := func(um uint32) float64 { return float64(um) / 25400 * 72 }
+	return PaperSize{name, code, pt(wNom), pt(hNom), [2]uint32{wUM, hUM}, duplex}
 }
 
 // A4, A5 and Letter are taken from Windows captures; the rest is nominal.
@@ -153,8 +160,8 @@ var papers = []PaperSize{
 	paper("Executive", 0x07, 184150, 266700, true),
 	paper("HalfLetter", 0x06, 139700, 215900, false),
 	paper("A3", 0x08, 297000, 420000, true),
-	paper("A4", 0x09, 209974, 296926, true),
-	paper("A5", 0x0B, 147998, 209974, false),
+	paperMedia("A4", 0x09, 210000, 297000, 209974, 296926, true),
+	paperMedia("A5", 0x0B, 148000, 210000, 147998, 209974, false),
 	paper("A6", 0x46, 105000, 148000, false),
 	paper("B4", 0x0C, 257000, 364000, true),
 	paper("B5", 0x0D, 182000, 257000, true), // JIS B5
