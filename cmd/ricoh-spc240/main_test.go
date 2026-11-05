@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/kipavy/ricoh-spc240/internal/ddst"
+	"github.com/kipavy/ricoh-spc240/internal/raster"
 	"github.com/kipavy/ricoh-spc240/internal/render"
 )
 
@@ -457,6 +458,66 @@ func TestLandscapeEndToEnd(t *testing.T) {
 	}
 	if ink(0, 0, p.W/2, p.H) || ink(0, p.H/2, p.W, p.H) {
 		t.Error("ink outside the top-right")
+	}
+	for range files {
+	}
+}
+
+func TestLandscapeRotatePerKind(t *testing.T) {
+	mk := func() *raster.Page { return &raster.Page{W: 2, H: 3, Channels: 1, Pix: []byte{0, 1, 10, 11, 20, 21}} }
+	cw := []byte{20, 10, 0, 21, 11, 1}
+	ccw := []byte{1, 11, 21, 0, 10, 20}
+	for kind, want := range map[render.Kind][]byte{render.KindPDF: cw, render.KindImage: cw, render.KindPS: cw, render.KindText: ccw} {
+		if got := landscapeRotate(mk(), kind, true); !bytes.Equal(got.Pix, want) || got.W != 3 {
+			t.Errorf("kind %d: %v", kind, got.Pix)
+		}
+	}
+	if got := landscapeRotate(mk(), render.KindText, false); got.W != 2 {
+		t.Error("rotated without --landscape")
+	}
+}
+
+func TestEncodeRejectsLandscape(t *testing.T) {
+	code, _, errs := runCmd("encode", "p.pgm", "--landscape", "--output", "o.ddst")
+	if code != 2 || !strings.Contains(errs, "encode: --landscape is not supported") {
+		t.Errorf("exit %d, stderr %q", code, errs)
+	}
+}
+
+// Landscape text must follow the image convention: ink in the right half of
+// the portrait raster, the first line near the right edge.
+func TestLandscapeTextEndToEnd(t *testing.T) {
+	for _, tool := range []string{"gs", "enscript"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skip(tool + " not installed")
+		}
+	}
+	tmp := t.TempDir()
+	in := filepath.Join(tmp, "t.txt")
+	if err := os.WriteFile(in, []byte("FIRST LINE\nsecond line\nthird line\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a6, _ := ddst.LookupPaper("A6")
+	files, errc := render.Render(context.Background(), render.Request{Input: in, Paper: a6, TmpDir: tmp, Landscape: true})
+	pf, ok := <-files
+	if !ok {
+		t.Fatal(<-errc)
+	}
+	p, err := readPage(pf.Path, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p = landscapeRotate(p, render.KindText, true)
+	minX, maxX := p.W, -1
+	for y := 0; y < p.H; y++ {
+		for x := 0; x < p.W; x++ {
+			if p.Pix[y*p.W+x] != 0 {
+				minX, maxX = min(minX, x), max(maxX, x)
+			}
+		}
+	}
+	if maxX < 0 || minX < p.W/2 || p.W-maxX > p.W/8 {
+		t.Errorf("ink x-range [%d,%d] of %d: want right half, first line near the right edge", minX, maxX, p.W)
 	}
 	for range files {
 	}

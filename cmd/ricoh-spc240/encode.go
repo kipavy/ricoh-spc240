@@ -23,6 +23,9 @@ func cmdEncode(args []string, stdout, stderr io.Writer) int {
 	if err == nil && len(pos) == 0 {
 		err = usagef("encode needs at least one PAGE file")
 	}
+	if err == nil && c.landscape {
+		err = usagef("encode: --landscape is not supported (pages are already rasters)")
+	}
 	if err != nil {
 		return exitCode(err, stderr)
 	}

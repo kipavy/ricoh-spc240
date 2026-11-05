@@ -45,6 +45,7 @@ func runPrint(c *common, input string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
+	kind, _ := render.Detect(input) // errors surface from Render
 	f.Close()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -71,8 +72,8 @@ func runPrint(c *common, input string, stdout io.Writer) error {
 			return nil, io.EOF
 		}
 		p, err := readPage(pf.Path, true)
-		if err == nil && c.landscape {
-			p = p.Rotate90CW() // landscape render -> portrait sheet
+		if err == nil {
+			p = landscapeRotate(p, kind, c.landscape)
 		}
 		return p, err
 	}
@@ -94,4 +95,19 @@ func readPage(path string, remove bool) (*raster.Page, error) {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	return p, nil
+}
+
+// landscapeRotate turns a page rendered on landscape media onto the portrait
+// sheet, with the content's top on the right-hand long edge. Text (enscript
+// output) comes out of Ghostscript turned the other way, so it needs an extra
+// half turn to follow the same convention as images and PDFs.
+func landscapeRotate(p *raster.Page, kind render.Kind, landscape bool) *raster.Page {
+	if !landscape {
+		return p
+	}
+	p = p.Rotate90CW()
+	if kind == render.KindText {
+		p.Rotate180()
+	}
+	return p
 }

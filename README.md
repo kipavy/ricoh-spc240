@@ -56,14 +56,15 @@ takes ready-made page rasters.
 
 A landscape page is fed through the printer in portrait. With `--landscape`,
 `print` renders every page on landscape media (images and text are laid out
-landscape too), rotates it 90 degrees clockwise and fills the sheet. The top of
+landscape too), rotates it so that it fills the sheet (JPEG, PDF and text all follow the same convention). The top of
 the content ends up on the right-hand long edge when the sheet is held in
 portrait: turn the sheet 90 degrees counter-clockwise to read it. Without the
 flag a landscape document is shrunk into the middle of the portrait sheet.
-For a landscape document bound like a notepad (flipped on the short side of the
-landscape page), use `--duplex long`, because that is the portrait sheet's long
-edge after the rotation. `encode` ignores `--landscape` (it takes pre-rendered
-pages), and `testpage` rejects it.
+Pages that are already portrait print unchanged. Binding: a notepad-style landscape
+document (bound along the landscape page's top, which is a long edge of the
+sheet) needs `--duplex long`; a book-style one (bound along the landscape short
+edge) needs `--duplex short`. `encode` and `testpage` reject `--landscape`
+(pages are already rasters / fixed layout).
 
 ### Flags of `decode`
 
