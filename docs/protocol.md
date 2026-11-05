@@ -99,8 +99,15 @@ page numbers are **1-based** (simplex page n → n); the raster is the printable
 area only: `width = roundup32(page_px − 200)`, `height ≈ page_px − 200`
 (≈ 4.2 mm margin each side at 600 dpi). Measured: A4 4768 × 6816,
 Letter 4928 × 6402, A5 3296 × 4762. The macOS driver sends the size CUPS gives
-it (PPD imageable area). **Our choice:** printable area as Windows does
-(A4 → 4768 × 6816), page numbers 1-based.
+it (PPD imageable area).
+
+**[win] phantom lines:** the declared height is **2 lines more** than the
+rows actually encoded. With R real rows (`R = round(media height µm × 600 /
+25400) − 200`: A4 6814, A5 4760, Letter 6400) the GDIP height is `R + 2`
+and the band count `ceil(R / 256)` (A4 27, A5 19, Letter 25). The 2 extra
+lines appear only in the declared size of the short band (§7); no JBIG
+image encodes them. **Our choice:** same as Windows (`ddst.PageRaster`
+gives W × R; A4 → 4768 × 6814 rows, declared 6816), page numbers 1-based.
 
 ### 5.1 Paper size codes
 Letter 1, Legal 5, Ledger 0x11, Executive 7, Half Letter 6, A3 8, **A4 9**,
@@ -135,18 +142,22 @@ Cardstock, Labels, Envelope.
   does not set `DestinyFlipDuplex`). With the PPD option `Rotated=True` the page
   is rotated 180° (rows reversed and each row mirrored).
 * **[win] confirmed:** back page sent first (`side 0x0D`, page number 2), then
-  front (`side 5`, page number 1). For **short-edge** binding the driver
-  **rotates the back page 180°** itself (there is no tumble flag in the
-  stream); long-edge back pages are not rotated. With an odd page count the
+  front (`side 5`, page number 1). For **long-edge** binding the driver
+  **rotates the back page 180°** itself (there is no binding flag in the
+  stream); **short-edge**
+  back pages are not rotated. A rotated page is banded so that the short
+  band comes **first**: it is the unrotated page's bands sent in reverse
+  order, each rotated 180° (c2_color_long back: `1:160 0:256 … 2:256`,
+  front `1:256 … 2:160`, as `flags:lines`). With an odd page count the
   Windows driver sends the last page as **simplex** (`side 1`) instead of
   adding a blank back. **Our choice:** follow Windows (1-based numbers, last
-  odd page simplex, short-edge back rotated 180°).
+  odd page simplex, long-edge back rotated 180°).
 * A page with a single plane (K only) is accepted inside a colour job [win:
   blank pages are sent with `planes = 1`].
 
 ## 7. GDIB — band header (32 bytes) + data [mac]
 
-Bands are 256 lines high (last band shorter).
+Bands are 256 lines high (last band shorter; see §7.1 for the Windows layout).
 
 | Offset | Size | Value |
 |---|---|---|
@@ -158,7 +169,7 @@ Bands are 256 lines high (last band shorter).
 | 16 | 4 | length of M data |
 | 20 | 4 | length of C data |
 | 24 | 2 | row width in bits (same as GDIP offset 12) |
-| 26 | 2 | lines in this band |
+| 26 | 2 | lines in this band (declared; [win] short band = encoded rows + 2) |
 | 28 | 2 | 0 |
 | 30 | 1 | 1 on the last band if the whole page was **blank** (no non-zero raster byte), else 0 |
 | 31 | 1 | 0 |
@@ -183,9 +194,14 @@ Each plane of each band is an independent JBIG1 (ITU-T T.85) bi-level image:
   bytes to a length that is a multiple of 8.
   **Our choice:** options 0x40, MX 0, standard T.85 output identical to
   jbigkit (trailing zeros dropped), then `00` padding to a multiple of 8.
-* Bands are 256 lines; Windows sometimes makes the last band slightly taller
-  (Letter: 24 × 256 + 258). We always use 256-line bands with a shorter last
-  band, as the macOS driver does.
+* **[win] band heights:** bands hold 256 real rows except the remainder
+  band (`R mod 256` rows, or 256 when R is a multiple of 256). The
+  remainder band is the last one sent, or the first on a rotated long-edge
+  back (§6). It **declares** `real + 2` lines in GDIB offset 26 while each
+  of its JBIG images has `YD = real`: A4 160 / 158, A5 154 / 152, Letter
+  (25 × 256 rows) 258 / 256 on its last band (Letter: 24 × 256 + 258).
+  Flags stay bit 0 on the first band sent, bit 1 on the last, whatever
+  their heights. **Our choice:** identical.
 
 ## 8. Raster preparation [mac]
 
