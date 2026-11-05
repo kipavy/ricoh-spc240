@@ -190,9 +190,12 @@ Each plane of each band is an independent JBIG1 (ITU-T T.85) bi-level image:
   data are **identical to the reference encoder jbigkit**
   (`pbmtojbg -q -s 256 -m 0 -p 64 -o 3`) except that Windows keeps the
   coder's trailing zero bytes before the final `FF 02` (T.85 allows dropping
-  them; jbigkit drops them). After `FF 02` Windows pads with `00` or `FF`
+  them; jbigkit drops them) and that **L0 = YD** (min(256, band lines):
+  158 on the A4 short band, 256 elsewhere) where jbigkit always writes
+  256. After `FF 02` Windows pads with `00` or `FF`
   bytes to a length that is a multiple of 8.
-  **Our choice:** options 0x40, MX 0, standard T.85 output identical to
+  **Our choice:** options 0x40, MX 0, L0 = band height, standard T.85
+  output otherwise identical to
   jbigkit (trailing zeros dropped), then `00` padding to a multiple of 8.
 * **[win] band heights:** bands hold 256 real rows except the remainder
   band (`R mod 256` rows, or 256 when R is a multiple of 256). The

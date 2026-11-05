@@ -201,30 +201,37 @@ func pixel(row []byte, x, width int) uint32 {
 // BIH: DL=0 D=0 P=1, XD=width, YD=height, L0=256, MX=0 MY=0, order=0x03,
 // options=0x40 (LRLTWO). Each 256-line stripe ends with FF 02 (SDNORM).
 func Encode(width, height int, rows []byte) []byte {
-	return encodeImage(width, height, rows, optLRLTWO)
+	return encodeImage(width, height, stripeLines, rows, optLRLTWO)
+}
+
+// EncodeStripe is Encode with the stripe height L0 chosen by the caller
+// (l0 >= 1). The Windows driver writes L0 = min(256, height) for every band.
+// The arithmetic-coded data equal Encode's whenever both give one stripe.
+func EncodeStripe(width, height, l0 int, rows []byte) []byte {
+	return encodeImage(width, height, l0, rows, optLRLTWO)
 }
 
 // encodeImage encodes with the two-line (options 0x40) or three-line
 // (options 0x00, used only by tests to exercise Decode) template.
-func encodeImage(width, height int, rows []byte, options byte) []byte {
+func encodeImage(width, height, l0 int, rows []byte, options byte) []byte {
 	stride := (width + 7) / 8
-	if width < 1 || height < 1 || uint64(width) > 0xffffffff || uint64(height) > 0xffffffff || len(rows) < stride*height {
+	if width < 1 || height < 1 || l0 < 1 || uint64(l0) > 0xffffffff || uint64(width) > 0xffffffff || uint64(height) > 0xffffffff || len(rows) < stride*height {
 		panic("jbig: invalid image dimensions or short pixel buffer")
 	}
 	out := make([]byte, bihLen, bihLen+len(rows)/8+64)
 	out[2] = 1 // P
 	binary.BigEndian.PutUint32(out[4:], uint32(width))
 	binary.BigEndian.PutUint32(out[8:], uint32(height))
-	binary.BigEndian.PutUint32(out[12:], stripeLines)
+	binary.BigEndian.PutUint32(out[12:], uint32(l0))
 	out[18] = 0x03 // order: HITOLO | SEQ
 	out[19] = options
 	twoLine := options&optLRLTWO != 0
 
 	var cxs [1024]context
 	e := encoder{out: out}
-	for y0 := 0; y0 < height; y0 += stripeLines {
+	for y0 := 0; y0 < height; y0 += l0 {
 		e.init()
-		for y := y0; y < height && y < y0+stripeLines; y++ {
+		for y := y0; y < height && y < y0+l0; y++ {
 			cur := rows[y*stride : (y+1)*stride]
 			var prev, prev2 []byte
 			if y > 0 {

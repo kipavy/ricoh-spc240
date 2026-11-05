@@ -61,7 +61,8 @@ func (j *Job) encodePage(p *raster.Page, rotated bool) *encodedPage {
 				ch := 3 - k // channels are C, M, Y, K
 				e.halftone(p, ch, j.o.Screens[ch], y0, lines, stride)
 			}
-			data[k] = pad8(jbig.Encode(j.widthBits, lines, rows))
+			// L0 = band height (min(256, lines)), as Windows writes it.
+			data[k] = pad8(jbig.EncodeStripe(j.widthBits, lines, lines, rows))
 		}
 		last := b == j.bands-1
 		h := BandHeader{First: b == 0, Last: last, BlankPage: blank && last,

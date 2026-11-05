@@ -65,8 +65,9 @@ func sizedPage(w, h, channels, ch int, pts ...[2]int) *raster.Page {
 	return p
 }
 
-// band is one GDIB as sent: flags, declared lines and the JBIG YD of K.
-type band struct{ flags, lines, yd int }
+// band is one GDIB as sent: flags, declared lines, and the JBIG YD and L0
+// of K (Windows: L0 = min(256, YD)).
+type band struct{ flags, lines, yd, l0 int }
 
 func bandList(t testing.TB, p sentPage) []band {
 	t.Helper()
@@ -76,7 +77,8 @@ func bandList(t testing.TB, p sentPage) []band {
 		if err != nil {
 			t.Fatal(err)
 		}
-		out = append(out, band{int(b.Header[7]), int(binary.BigEndian.Uint16(b.Header[26:])), yd})
+		out = append(out, band{int(b.Header[7]), int(binary.BigEndian.Uint16(b.Header[26:])), yd,
+			int(binary.BigEndian.Uint32(b.Planes[0][12:]))})
 	}
 	return out
 }
@@ -89,9 +91,9 @@ func wantBands(r int, rotated bool) []band {
 	rem := r - (n-1)*256
 	var out []band
 	for i := 0; i < n; i++ {
-		b := band{lines: 256, yd: 256}
+		b := band{lines: 256, yd: 256, l0: 256}
 		if (!rotated && i == n-1) || (rotated && i == 0) {
-			b = band{lines: rem + 2, yd: rem}
+			b = band{lines: rem + 2, yd: rem, l0: rem}
 		}
 		if i == 0 {
 			b.flags |= 1

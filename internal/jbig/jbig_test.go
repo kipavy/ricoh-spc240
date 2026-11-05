@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -258,7 +259,7 @@ func TestDecodeThreeLineTemplate(t *testing.T) {
 	cases := append(append(append([]golden{}, goldens...), tinyCases...), randomBitmaps(10)...)
 	for _, c := range cases {
 		rows := bitmap(c.w, c.h, c.ink)
-		enc := encodeImage(c.w, c.h, rows, 0x00)
+		enc := encodeImage(c.w, c.h, stripeLines, rows, 0x00)
 		if enc[19] != 0x00 {
 			t.Fatalf("%s: options byte 0x%02x", c.name, enc[19])
 		}
@@ -268,6 +269,36 @@ func TestDecodeThreeLineTemplate(t *testing.T) {
 		}
 		if w != c.w || h != c.h || !bytes.Equal(got, rows) {
 			t.Fatalf("%s: three-line round trip mismatch", c.name)
+		}
+	}
+}
+
+// EncodeStripe writes the caller's L0; with one stripe the coded data equal
+// Encode's, and Decode handles L0 == YD, L0 < YD (several stripes) and
+// L0 > YD.
+func TestEncodeStripe(t *testing.T) {
+	cases := append(append([]golden{}, goldens...), randomBitmaps(10)...)
+	cases = append(cases, tinyCases...)
+	for _, c := range cases {
+		rows := bitmap(c.w, c.h, c.ink)
+		for _, l0 := range []int{c.h, max(1, c.h/3), 1, 300} {
+			enc := EncodeStripe(c.w, c.h, l0, rows)
+			if got := int(binary.BigEndian.Uint32(enc[12:])); got != l0 {
+				t.Fatalf("%s: L0 %d, want %d", c.name, got, l0)
+			}
+			w, h, got, err := Decode(enc)
+			if err != nil {
+				t.Fatalf("%s L0=%d: %v", c.name, l0, err)
+			}
+			if w != c.w || h != c.h || !bytes.Equal(got, rows) {
+				t.Fatalf("%s L0=%d: round trip mismatch", c.name, l0)
+			}
+			if l0 >= c.h && c.h <= stripeLines {
+				ref := Encode(c.w, c.h, rows)
+				if !bytes.Equal(enc[:12], ref[:12]) || !bytes.Equal(enc[16:], ref[16:]) {
+					t.Fatalf("%s L0=%d: differs from Encode beyond L0", c.name, l0)
+				}
+			}
 		}
 	}
 }
