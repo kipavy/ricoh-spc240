@@ -11,7 +11,7 @@ the Ricoh data files the print pipeline needs.
 
 ```sh
 docker run --rm -v "$PWD":/data ghcr.io/kipavy/ricoh-spc240 \
-  print /data/file.pdf --printer 192.168.1.23
+  print /data/file.pdf --printer 192.168.1.50
 ```
 
 The container runs as an unprivileged user (uid 65534), so the mounted
@@ -33,7 +33,7 @@ Flags may appear before or after the positional arguments.
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--printer HOST[:PORT]` | `192.168.1.23:9100` (or `$RICOH_PRINTER`) | printer address |
+| `--printer HOST[:PORT]` | required (or `$RICOH_PRINTER`), unless `--output` is used | printer address, port 9100 by default |
 | `--output FILE` | | write the job to a file instead of printing (exclusive with `--printer`) |
 | `--mono` | off | print in black and white |
 | `--duplex` | `none` | `none`, `long` or `short` (binding edge) |
@@ -100,23 +100,23 @@ top, which is a long edge of the sheet) needs `--duplex long`; a book-style one
 ```sh
 alias ricoh='docker run --rm -v "$PWD":/data ghcr.io/kipavy/ricoh-spc240'
 
-ricoh print /data/report.pdf --printer 192.168.1.23 --duplex long
-ricoh print /data/report.pdf --printer 192.168.1.23 --mono --pages 1-3,5 --copies 2
-ricoh print /data/notes.txt  --printer 192.168.1.23
-ricoh print /data/photo.jpg  --printer 192.168.1.23 --quality fine
+ricoh print /data/report.pdf --printer 192.168.1.50 --duplex long
+ricoh print /data/report.pdf --printer 192.168.1.50 --mono --pages 1-3,5 --copies 2
+ricoh print /data/notes.txt  --printer 192.168.1.50
+ricoh print /data/photo.jpg  --printer 192.168.1.50 --quality fine
 
 # Write the job to a file instead of printing, then inspect it
 ricoh print /data/report.pdf --output /data/report.ddst
 ricoh decode /data/report.ddst --png /data/preview
 ```
 
-Pass `-e RICOH_PRINTER=192.168.1.23` to `docker run` to omit `--printer`.
+Pass `-e RICOH_PRINTER=192.168.1.50` to `docker run` to omit `--printer`.
 Accepted inputs: PDF, PostScript, UTF-8 text, and JPEG, PNG, GIF, TIFF, BMP.
 
 ## Test sheet
 
 ```sh
-ricoh testpage --printer 192.168.1.23
+ricoh testpage --printer 192.168.1.50
 ```
 
 Prints exactly one A4 sheet, duplex, with less than 3 % ink coverage, to check

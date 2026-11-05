@@ -566,3 +566,15 @@ func TestNoCollateDuplexWarning(t *testing.T) {
 		}
 	}
 }
+
+func TestPrintNeedsPrinter(t *testing.T) {
+	t.Setenv("RICOH_PRINTER", "")
+	in := filepath.Join(t.TempDir(), "in.pdf")
+	if err := os.WriteFile(in, []byte("%PDF-1.4\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, _, errs := runCmd("print", in, "--assets", writeScreens(t))
+	if code != 2 || !strings.Contains(errs, "no printer") {
+		t.Errorf("exit %d, stderr %q", code, errs)
+	}
+}
