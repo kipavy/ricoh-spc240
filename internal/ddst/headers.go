@@ -18,15 +18,20 @@ type JobHeader struct {
 	Color           bool
 	BPP             int // bits per pixel: 1, 2 or 4
 	Duplex, Collate bool
+	Copies          int // printer-side copies (uncollated); 0 means 1
 }
 
-// Bytes encodes the GDIJ record (Windows layout: no timestamp, 1 copy).
+// Bytes encodes the GDIJ record (Windows layout: no timestamp).
 func (h JobHeader) Bytes() []byte {
 	b := make([]byte, 120)
 	copy(b, "GDIJ")
 	binary.BigEndian.PutUint32(b[4:], 120)
 	binary.BigEndian.PutUint16(b[8:], 1)
-	binary.BigEndian.PutUint16(b[10:], 1) // copies are sent as repeated pages
+	copies := h.Copies
+	if copies < 1 {
+		copies = 1
+	}
+	binary.BigEndian.PutUint16(b[10:], uint16(copies))
 	var flags uint16
 	if h.Duplex {
 		flags |= 0x0200

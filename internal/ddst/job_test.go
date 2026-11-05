@@ -472,13 +472,14 @@ func TestJobCopiesCollate(t *testing.T) {
 		duplex  Duplex
 		n       int
 		flags   uint16
+		copies  uint16 // GDIJ copies field
 		want    [][2]int
 	}{
-		{"collated", true, DuplexNone, 2, 0x0008, [][2]int{{1, 1}, {2, 1}, {1, 1}, {2, 1}}},
-		{"uncollated", false, DuplexNone, 2, 0, [][2]int{{1, 1}, {1, 1}, {2, 1}, {2, 1}}},
-		{"duplex odd", true, DuplexLongEdge, 3, 0x0208,
+		{"collated", true, DuplexNone, 2, 0x0008, 1, [][2]int{{1, 1}, {2, 1}, {1, 1}, {2, 1}}},
+		{"uncollated", false, DuplexNone, 2, 0, 2, [][2]int{{1, 1}, {2, 1}}},
+		{"duplex odd", true, DuplexLongEdge, 3, 0x0208, 1,
 			[][2]int{{2, 0x0D}, {1, 5}, {3, 1}, {2, 0x0D}, {1, 5}, {3, 1}}},
-		{"duplex uncollated", false, DuplexLongEdge, 2, 0x0200,
+		{"duplex uncollated", false, DuplexLongEdge, 2, 0x0200, 1,
 			[][2]int{{2, 0x0D}, {1, 5}, {2, 0x0D}, {1, 5}}},
 	}
 	for _, c := range cases {
@@ -492,8 +493,8 @@ func TestJobCopiesCollate(t *testing.T) {
 		if got := binary.BigEndian.Uint16(recs[0].Header[16:]); got != c.flags {
 			t.Errorf("%s: flags %#x, want %#x", c.name, got, c.flags)
 		}
-		if binary.BigEndian.Uint16(recs[0].Header[10:]) != 1 {
-			t.Errorf("%s: GDIJ copies must stay 1", c.name)
+		if got := binary.BigEndian.Uint16(recs[0].Header[10:]); got != c.copies {
+			t.Errorf("%s: GDIJ copies %d, want %d", c.name, got, c.copies)
 		}
 		sent := pagesOf(t, recs)
 		if !equalOrder(order(sent), c.want) {

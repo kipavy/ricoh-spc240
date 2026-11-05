@@ -28,7 +28,7 @@ type Options struct {
 	Color   bool // false: every page must be 1-channel (gray rendered as K)
 	Quality halftone.Quality
 	Duplex  Duplex
-	Copies  int // >= 1; sent as repeated pages (GDIJ copies stays 1)
+	Copies  int // >= 1; uncollated simplex copies are made by the printer
 	Collate bool
 	GrayToK bool                // move neutral CMY into K before halftoning
 	Screens [4]*halftone.Screen // C, M, Y, K; a mono job needs only K
@@ -110,7 +110,8 @@ func NewJob(w io.Writer, o Options) (*Job, error) {
 		return nil, fmt.Errorf("ddst: page %dx%d at %d bpp exceeds the header limits", width, height, bpp)
 	}
 	hdr := JobHeader{Title: o.Title, Color: o.Color, BPP: bpp,
-		Duplex: o.Duplex != DuplexNone, Collate: o.Collate && o.Copies > 1}.Bytes()
+		Duplex: o.Duplex != DuplexNone, Collate: o.Collate && o.Copies > 1,
+		Copies: j.printerCopies()}.Bytes()
 	j.write(append(hdr, GJETBytes()...))
 	if j.err != nil {
 		return nil, j.err
@@ -184,17 +185,11 @@ func (j *Job) checkPage(p *raster.Page) error {
 }
 
 // place sends page n of the document following the Windows order: simplex
-// in order (repeated when uncollated), duplex back (even n) before front.
+// in order, duplex back (even n) before front.
 func (j *Job) place(ep *encodedPage, n int) {
 	switch {
 	case j.o.Duplex == DuplexNone:
-		reps := 1
-		if !j.o.Collate {
-			reps = j.o.Copies
-		}
-		for r := 0; r < reps; r++ {
-			j.writePage(ep, SideSimplex, n)
-		}
+		j.writePage(ep, SideSimplex, n)
 	case n%2 == 1:
 		j.front, j.frontNo = ep, n
 	default:
@@ -202,6 +197,16 @@ func (j *Job) place(ep *encodedPage, n int) {
 		j.writePage(j.front, SideFront, j.frontNo)
 		j.front = nil
 	}
+}
+
+// printerCopies is the GDIJ copies field: uncollated simplex jobs send each
+// page once and the printer repeats it (like Windows); collated and duplex
+// copies replay the document instead.
+func (j *Job) printerCopies() int {
+	if j.o.Duplex == DuplexNone && !j.o.Collate {
+		return j.o.Copies
+	}
+	return 1
 }
 
 // endCopy sends a lone duplex front page as a simplex sheet.

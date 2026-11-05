@@ -85,9 +85,12 @@ func compareWithCorpus(t *testing.T, name string, data []byte) {
 		}
 		doc = append(doc, sent[i])
 	}
-	// Copies: collated/duplex repeat the document, otherwise each page.
-	copies := 1
-	if collate || duplex {
+	// Copies: a GDIJ copies field > 1 means the printer repeats each page
+	// (uncollated, pages appear once); collated/duplex jobs replay the document.
+	copies := int(binary.BigEndian.Uint16(jh[10:]))
+	if copies > 1 {
+		collate = false
+	} else if collate || duplex {
 		period := len(doc)
 		for i := 1; i < len(doc); i++ {
 			if doc[i].no() == 1 {
@@ -97,15 +100,6 @@ func compareWithCorpus(t *testing.T, name string, data []byte) {
 		}
 		copies = len(doc) / period
 		doc = doc[:period]
-	} else {
-		for copies < len(doc) && doc[copies].no() == doc[0].no() {
-			copies++
-		}
-		var one []sentPage
-		for i := 0; i < len(doc); i += copies {
-			one = append(one, doc[i])
-		}
-		doc = one
 	}
 
 	o := Options{Title: "corpus", Paper: paper, Tray: Tray(ph[9]), Type: PaperType(ph[10]),

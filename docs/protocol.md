@@ -37,7 +37,7 @@ Cancel: the 16 bytes `"GDIC CANCEL     "` are sent instead of finishing. [mac]
 | 0 | 4 | `"GDIJ"` |
 | 4 | 4 | 120 (header length) |
 | 8 | 2 | 100 (constant) |
-| 10 | 2 | number of copies |
+| 10 | 2 | number of copies the printer makes (§3.2) |
 | 12 | 4 | 0 |
 | 16 | 2 | flags: `0x0200` = duplex, `0x0008` = collate |
 | 18 | 2 | 168 (length of the following GJET) |
@@ -51,8 +51,8 @@ Cancel: the 16 bytes `"GDIC CANCEL     "` are sent instead of finishing. [mac]
 | 56 | 64 | job title, NUL padded |
 
 **Windows driver v1.14 differences [win]:** offset 8 = 1 (not 100), timestamp
-0, copies always 1 (copies are sent as repeated pages, collate flag `0x0008`
-set), host/user empty, GJET bytes 148–151 = `01 01 01 01`. Both variants are
+0, copies 1 except for uncollated simplex jobs (§3.2), collate flag `0x0008`
+set for collated copies, host/user empty, GJET bytes 148–151 = `01 01 01 01`. Both variants are
 self-consistent. **Our writer reproduces the Windows layout byte for byte**
 (GDIJ, GJET, GDIP, GDIB, JBIG options and padding), so that its output can be
 compared exactly with captures of the official Windows driver. Only the job
@@ -61,6 +61,13 @@ title differs.
 ### 3.1 Timestamp
 `day<<27 | month<<23 | (year−1980)<<16 | (second/2)<<11 | minute<<5 | hour`
 (month 1–12). [mac — taken from the disassembly of `-[NSCalendarDate destinyDate]`]
+
+### 3.2 Copies [win]
+Uncollated simplex copies: each page is sent once and the copies field (offset 10)
+holds N, flags `0x0000`; the printer repeats each page itself. Collated copies:
+copies field 1, flag `0x0008`, and Windows replays the whole document N times.
+Duplex + uncollated is treated as collated (copies 1, document replayed).
+
 
 ## 4. GJET — job extension (168 bytes) [mac]
 
