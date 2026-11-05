@@ -3,9 +3,11 @@ package send
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strings"
 	"time"
 )
@@ -77,7 +79,15 @@ func (w *conn) Close() error {
 		return fmt.Errorf("close %s: %w", w.addr, err)
 	}
 	w.c.SetReadDeadline(time.Now().Add(closeWait))
-	// A timeout or reset here is harmless: all data was already written.
-	io.Copy(io.Discard, w.c)
-	return nil
+	// Drain until the peer closes. EOF: clean. Timeout: the printer accepted
+	// the data but holds the socket (common on raw 9100), so treat as success.
+	// Anything else (e.g. reset) means the job may have been discarded.
+	_, err := io.Copy(io.Discard, w.c)
+	if err == nil || errors.Is(err, os.ErrDeadlineExceeded) {
+		return nil
+	}
+	if ne, ok := err.(net.Error); ok && ne.Timeout() {
+		return nil
+	}
+	return fmt.Errorf("printer %s reset the connection after the job was sent: %w", w.addr, err)
 }

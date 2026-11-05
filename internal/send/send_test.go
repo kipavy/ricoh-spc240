@@ -130,13 +130,17 @@ func TestCloseDoesNotHangOnSilentPeer(t *testing.T) {
 	old := closeWait
 	closeWait = 200 * time.Millisecond
 	defer func() { closeWait = old }()
-	ln, _ := net.Listen("tcp", "127.0.0.1:0")
-	defer ln.Close()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	t.Cleanup(func() { close(done); ln.Close() })
 	go func() {
 		c, err := ln.Accept()
 		if err == nil {
 			defer c.Close()
-			time.Sleep(2 * time.Second) // never closes in time
+			<-done // stay silent until the test ends
 		}
 	}()
 	w, err := Dial(context.Background(), ln.Addr().String(), time.Second)
@@ -144,8 +148,39 @@ func TestCloseDoesNotHangOnSilentPeer(t *testing.T) {
 		t.Fatal(err)
 	}
 	start := time.Now()
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatalf("timeout path should return nil, got %v", err)
+	}
 	if time.Since(start) > time.Second {
 		t.Fatal("Close did not honour closeWait")
+	}
+}
+
+func TestCloseReportsResetAfterSend(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		io.Copy(io.Discard, c) // until the client's half-close
+		c.(*net.TCPConn).SetLinger(0)
+		c.Close() // RST
+	}()
+	addr := ln.Addr().String()
+	w, err := Dial(context.Background(), addr, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte("job")); err != nil {
+		t.Fatal(err)
+	}
+	err = w.Close()
+	if err == nil || !strings.Contains(err.Error(), addr) {
+		t.Fatalf("Close = %v, want error naming %s", err, addr)
 	}
 }
