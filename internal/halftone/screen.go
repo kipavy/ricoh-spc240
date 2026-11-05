@@ -93,7 +93,8 @@ func ParseScreen(data []byte) (*Screen, error) {
 
 // Row halftones one plane row (0 = no ink) at page row y and writes
 // MSB-first Depth-bit pixels into out. Exactly (len(in)*Depth+7)/8 bytes of
-// out are written; trailing pad bits are zero.
+// out are written; trailing pad bits are zero. y must be >= 0 and out must
+// hold at least (len(in)*Depth+7)/8 bytes.
 func (s *Screen) Row(in []byte, y int, out []byte) {
 	n := (len(in)*s.Depth + 7) / 8
 	out = out[:n]

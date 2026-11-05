@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
-	"strings"
+	"strconv"
 	"testing"
 )
 
@@ -148,13 +148,11 @@ func TestParseQuality(t *testing.T) {
 
 func writeFake(t *testing.T, dir, name string, w, depth int) {
 	t.Helper()
-	d := buildScreen("1 "+itoa(w)+" 1 8 "+itoa(depth), w, 1, depth, func(y, x, v int) int { return 0 })
+	d := buildScreen("1 "+strconv.Itoa(w)+" 1 8 "+strconv.Itoa(depth), w, 1, depth, func(y, x, v int) int { return 0 })
 	if err := os.WriteFile(filepath.Join(dir, name), d, 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
-
-func itoa(n int) string { return strings.TrimSpace(strings.Repeat(" ", 0) + string(rune('0'+n))) }
 
 func TestLoadScreenSetMonoUsesK(t *testing.T) {
 	dir := t.TempDir()
@@ -186,5 +184,53 @@ func TestLoadScreenSetColorOrder(t *testing.T) {
 	}
 	if _, err := LoadScreenSet(t.TempDir(), Fast, true); err == nil {
 		t.Error("expected error for missing files")
+	}
+}
+
+func TestParseScreenTrailingWhitespace(t *testing.T) {
+	d := buildScreen("1 2 2 8 1 \n", 2, 2, 1, thresh1)
+	if _, err := ParseScreen(d); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestRowAsymmetricIndexing uses a non-square screen whose value depends
+// differently on y, x and level, so a transposed or mis-strided index fails.
+func TestRowAsymmetricIndexing(t *testing.T) {
+	const W, H = 3, 2
+	for _, depth := range []int{1, 2, 4} {
+		mask := 1<<depth - 1
+		fn := func(y, x, v int) int { return (y*7 + x*3 + v/37 + (v&1)*y) & mask }
+		s, err := ParseScreen(buildScreen("1 3 2 8 "+strconv.Itoa(depth), W, H, depth, fn))
+		if err != nil {
+			t.Fatal(err)
+		}
+		in := []byte{0, 37, 74, 111, 148, 185, 222, 255, 1, 38, 75}
+		var rows [3][]byte
+		for _, y := range []int{0, 1, 2, 5} {
+			out := make([]byte, (len(in)*depth+7)/8+1)
+			out[len(out)-1] = 0xEE
+			s.Row(in, y, out)
+			// Independent expectation: pack fn(y%H, x%W, v) bit by bit.
+			want := make([]byte, len(out))
+			want[len(out)-1] = 0xEE
+			for x, v := range in {
+				val := fn(y%H, x%W, int(v))
+				bit := x * depth
+				want[bit/8] |= byte(val << (8 - depth - bit%8))
+			}
+			if !bytes.Equal(out, want) {
+				t.Errorf("depth %d y=%d: got %x want %x", depth, y, out, want)
+			}
+			if y < 3 {
+				rows[y] = out
+			}
+		}
+		if bytes.Equal(rows[0], rows[1]) {
+			t.Errorf("depth %d: rows 0 and 1 identical, test is not asymmetric", depth)
+		}
+		if !bytes.Equal(rows[0], rows[2]) {
+			t.Errorf("depth %d: y=2 must wrap to y=0", depth)
+		}
 	}
 }
