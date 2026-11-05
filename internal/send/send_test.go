@@ -93,6 +93,7 @@ func TestSendPeerResetReturnsError(t *testing.T) {
 		if err != nil {
 			return
 		}
+		c.Read(make([]byte, 1)) // reset only once the client is writing
 		c.(*net.TCPConn).SetLinger(0)
 		c.Close()
 	}()

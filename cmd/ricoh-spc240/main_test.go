@@ -283,12 +283,14 @@ func TestAbortAfterConnectSendsNoJIDG(t *testing.T) {
 	}
 	defer ln.Close()
 	got := make(chan []byte, 1)
+	accepted := make(chan bool, 1)
 	go func() {
 		c, err := ln.Accept()
 		if err != nil {
 			got <- nil
 			return
 		}
+		accepted <- true
 		defer c.Close()
 		c.SetReadDeadline(time.Now().Add(10 * time.Second))
 		b, _ := io.ReadAll(c) // a reset ends the read early; keep what arrived
@@ -305,8 +307,11 @@ func TestAbortAfterConnectSendsNoJIDG(t *testing.T) {
 		t.Errorf("exit %d, stdout %q", code, out)
 	}
 	b := <-got
-	if len(b) == 0 {
-		t.Error("no connection/bytes received: the abort path was not exercised")
+	// A reset may discard unread bytes (Windows), so only the connection is asserted.
+	select {
+	case <-accepted:
+	default:
+		t.Error("no connection received: the abort path was not exercised")
 	}
 	if bytes.Contains(b, []byte("JIDG")) {
 		t.Error("aborted job contains JIDG")
