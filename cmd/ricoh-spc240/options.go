@@ -45,7 +45,7 @@ func newCommon(name string, stderr io.Writer) *common {
 	c.fs.StringVar(&c.paper, "paper", "A4", "paper size")
 	c.fs.StringVar(&c.ptype, "type", "plainrecycled", "paper type")
 	c.fs.StringVar(&c.tray, "tray", "auto", "input tray")
-	c.fs.StringVar(&c.quality, "quality", "standard", "fast, standard or fine")
+	c.fs.StringVar(&c.quality, "quality", "fast", "fast, standard or fine")
 	c.fs.BoolVar(&c.grayK, "gray-k", false, "print neutral colours with black toner only")
 	assets := defaultAssets
 	if v := os.Getenv("RICOH_ASSETS"); v != "" {

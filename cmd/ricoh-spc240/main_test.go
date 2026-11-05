@@ -355,3 +355,44 @@ func TestTestpageNeedsExplicitDestination(t *testing.T) {
 		t.Errorf("exit %d, stderr %q", code, errs)
 	}
 }
+
+func TestTestpageRejectsLayoutFlags(t *testing.T) {
+	assets := writeScreens(t)
+	out := filepath.Join(t.TempDir(), "x.ddst")
+	for _, fl := range [][]string{{"--paper", "A6"}, {"--duplex", "short"}, {"--type", "plain"},
+		{"--tray", "tray1"}, {"--mono"}, {"--pages", "1"}, {"--copies", "2"}, {"--no-collate"}, {"--gray-k"}} {
+		args := append([]string{"testpage", "--output", out, "--assets", assets}, fl...)
+		code, _, errs := runCmd(args...)
+		if code != 2 || !strings.Contains(errs, fl[0]+" is not supported") {
+			t.Errorf("%v: exit %d, stderr %q", fl, code, errs)
+		}
+	}
+}
+
+func TestTestpageOutputAndPrinterConflict(t *testing.T) {
+	code, _, _ := runCmd("testpage", "--output", "x", "--printer", "127.0.0.1:1", "--assets", writeScreens(t))
+	if code != 2 {
+		t.Errorf("exit %d, want 2", code)
+	}
+}
+
+func TestDefaultQualityIsFast(t *testing.T) {
+	assets := writeScreens(t)
+	tmp := t.TempDir()
+	tp := filepath.Join(tmp, "tp.ddst")
+	if code, _, errs := runCmd("testpage", "--output", tp, "--assets", assets); code != 0 {
+		t.Fatalf("testpage exit %d: %s", code, errs)
+	}
+	pg := filepath.Join(tmp, "p.pgm")
+	writePGM(t, pg, true)
+	en := filepath.Join(tmp, "e.ddst")
+	if code, _, errs := runCmd("encode", pg, "--mono", "--paper", "A6", "--assets", assets, "--output", en); code != 0 {
+		t.Fatalf("encode exit %d: %s", code, errs)
+	}
+	for _, p := range []string{tp, en} {
+		_, out, _ := runCmd("decode", p)
+		if !strings.Contains(out, "bpp=1") {
+			t.Errorf("%s: default quality is not 1 bpp:\n%s", p, out)
+		}
+	}
+}

@@ -66,6 +66,19 @@ func TestLabelsAtTop(t *testing.T) {
 			t.Errorf("page %d has no label ink in the top 15%% rows", i)
 		}
 	}
+	for i, p := range pp {
+		n := 0
+		for y := 0; y < 45; y++ {
+			for x := 0; x < p.W; x++ {
+				if p.Pix[(y*p.W+x)*p.Channels+p.Channels-1] == 255 {
+					n++
+				}
+			}
+		}
+		if n == 0 {
+			t.Errorf("page %d: no K=255 label ink in rows 0-44", i)
+		}
+	}
 	// Front label is black (K=255) in the top rows.
 	f := pp[0]
 	k := 0

@@ -25,11 +25,7 @@ func cmdTestpage(args []string, stdout, stderr io.Writer) int {
 		err = usagef("testpage takes no PAGE arguments")
 	}
 	if err == nil {
-		printerSet := false
-		c.fs.Visit(func(f *flag.Flag) { printerSet = printerSet || f.Name == "printer" })
-		if c.output == "" && !printerSet {
-			err = usagef("testpage needs --output FILE or --printer ADDR")
-		}
+		err = c.checkTestpageFlags()
 	}
 	if err != nil {
 		return exitCode(err, stderr)
@@ -57,4 +53,20 @@ func runTestpage(c *common, stdout io.Writer) error {
 		return pp[i-1], nil
 	})
 	return c.writeJob(ctx, stdout, o, next)
+}
+
+// checkTestpageFlags requires an explicit destination and rejects every flag
+// that would change the fixed A4 duplex colour layout.
+func (c *common) checkTestpageFlags() error {
+	set := map[string]bool{}
+	c.fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
+	for _, name := range []string{"paper", "duplex", "type", "tray", "mono", "pages", "copies", "no-collate", "gray-k"} {
+		if set[name] {
+			return usagef("testpage: --%s is not supported (the test page is always A4 duplex colour)", name)
+		}
+	}
+	if c.output == "" && !set["printer"] {
+		return usagef("testpage needs --output FILE or --printer ADDR")
+	}
+	return nil
 }
