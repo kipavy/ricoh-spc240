@@ -37,34 +37,57 @@ Flags may appear before or after the positional arguments.
 | `--output FILE` | | write the job to a file instead of printing (exclusive with `--printer`) |
 | `--mono` | off | print in black and white |
 | `--duplex` | `none` | `none`, `long` or `short` (binding edge) |
-| `--copies N` | `1` | number of copies |
-| `--no-collate` | off | do not collate copies |
+| `--copies N` | `1` | number of copies (1 to 999) |
+| `--no-collate` | off | do not collate copies (ignored with `--duplex`, see below) |
 | `--pages` | all | page selection, e.g. `1-3,5` |
-| `--paper` | `A4` | paper size: A4, A5, A6, A3, B4, B5, B6, Letter, Legal, Ledger, Executive, HalfLetter, FS, Folio, Foolscap, Env10, Monarch, EnvDL, EnvC5, EnvC6, 8K, 16K, Postcard, ReplyPostcard |
-| `--type` | `plainrecycled` | paper type: plainrecycled, plain, plain90, recycled, color, preprinted, prepunched, thick, thick160, letterhead, bond, cardstock, labels, envelope, thin, thinner |
+| `--paper` | `A4` | paper size (list below) |
+| `--type` | `plainrecycled` | paper type (list below) |
 | `--tray` | `auto` | `auto`, `bypass` (or `manual`), `tray1`, `tray2` |
 | `--quality` | `fast` | `fast`, `standard` or `fine` (halftone screen set) |
 | `--gray-k` | off | print neutral colours with black toner only |
 | `--landscape` | off | print landscape documents full page (see below) |
-| `--assets DIR` | `/usr/share/ricoh-spc240` (or `$RICOH_ASSETS`) | directory with `screens/` and `ricoh-c240dn.icc` |
+| `--assets DIR` | `/usr/share/ricoh-spc240` | Ricoh data dir (or `$RICOH_ASSETS`) |
+
+Paper sizes: A4, A5, A6, B5, B6, Letter, Legal, Executive, HalfLetter, FS,
+Folio, Foolscap, Env10, Monarch, EnvDL, EnvC5, EnvC6, 16K, Postcard,
+ReplyPostcard. The SP C240DN feeds up to Legal, so A3, B4 and Ledger are not
+offered.
+
+Paper types: plainrecycled, plain, plain90, recycled, color, preprinted,
+prepunched, thick, thick160, letterhead, bond, cardstock, labels, envelope,
+thin, thinner.
 
 Duplex is refused for paper sizes and paper types the printer cannot duplex.
-`encode` accepts the same flags, but `--pages` has no effect there, since it
-takes ready-made page rasters.
+With `--duplex`, copies are always collated: `--no-collate` is ignored (a
+warning is printed on stderr).
+
+`encode` takes ready-made page rasters, so it accepts every flag above except
+`--landscape`, which it rejects (usage error), and `--pages`, which it
+validates but otherwise ignores.
+
+Exit codes: 0 success, 1 runtime failure (I/O, rendering, printer connection),
+2 usage error (bad flag or option value).
+
+Text files are converted to Latin-1 before printing; characters outside
+Latin-1 print as `?`.
 
 ### Landscape documents
 
 A landscape page is fed through the printer in portrait. With `--landscape`,
-`print` renders every page on landscape media (images and text are laid out
-landscape too), rotates it so that it fills the sheet (JPEG, PDF and text all follow the same convention). The top of
-the content ends up on the right-hand long edge when the sheet is held in
-portrait: turn the sheet 90 degrees counter-clockwise to read it. Without the
-flag a landscape document is shrunk into the middle of the portrait sheet.
-Pages that are already portrait print unchanged. Binding: a notepad-style landscape
-document (bound along the landscape page's top, which is a long edge of the
-sheet) needs `--duplex long`; a book-style one (bound along the landscape short
-edge) needs `--duplex short`. `encode` and `testpage` reject `--landscape`
-(pages are already rasters / fixed layout).
+`print` renders every page on landscape media and rotates it so that it fills
+the sheet. The top of the content ends up on the right-hand long edge when the
+sheet is held in portrait: turn the sheet 90 degrees counter-clockwise to read
+it. Without the flag a landscape document is shrunk into the middle of the
+portrait sheet.
+
+What `--landscape` does depends on the input: portrait PDF and PostScript pages
+print unchanged (only landscape pages are rotated); images are always placed
+landscape; text is always laid out landscape.
+
+Binding: a notepad-style landscape document (bound along the landscape page's
+top, which is a long edge of the sheet) needs `--duplex long`; a book-style one
+(bound along the landscape short edge) needs `--duplex short`. `encode` and
+`testpage` reject `--landscape` (pages are already rasters / fixed layout).
 
 ### Flags of `decode`
 

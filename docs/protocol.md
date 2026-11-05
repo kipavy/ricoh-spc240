@@ -97,7 +97,7 @@ Duplex + uncollated is treated as collated (copies 1, document replayed).
 | 33 | 1 | side: 1 = simplex, 5 = duplex front, 0x0D = duplex back |
 | 34 | 2 | page number (0-based, see §6 for duplex) |
 | 36 | 18 | 0 |
-| 54 | 2 | number of bands = ceil(height / 256) |
+| 54 | 2 | number of bands = ceil(R / 256), R = declared height − 2 (real rows) |
 | 56 | 4 | media width in µm (= points / 72 × 25.4 × 1000, truncated) |
 | 60 | 4 | media height in µm |
 
@@ -117,11 +117,13 @@ image encodes them. **Our choice:** same as Windows (`ddst.PageRaster`
 gives W × R; A4 → 4768 × 6814 rows, declared 6816), page numbers 1-based.
 
 ### 5.1 Paper size codes
-Letter 1, Legal 5, Ledger 0x11, Executive 7, Half Letter 6, A3 8, **A4 9**,
-A5 0x0B, A6 0x46, B4 0x0C, JIS B5 0x0D, B6 0x58, FS 0x10, Folio 0x0F,
+Supported by this implementation: Letter 1, Legal 5, Executive 7, Half Letter 6,
+**A4 9**, A5 0x0B, A6 0x46, JIS B5 0x0D, B6 0x58, FS 0x10, Folio 0x0F,
 Foolscap 0x0E, Env #10 0x14, Monarch 0x25, Env DL 0x1B, Env C5 0x1C,
-Env C6 0x1F, 8K 0x5C, 16K 0x5D, Postcard 0x2B, Reply-paid postcard 0x45,
-custom 0xFF.
+Env C6 0x1F, 16K 0x5D, Postcard 0x2B, Reply-paid postcard 0x45, custom 0xFF.
+
+Codes known from the Windows driver but not supported by this model (the
+SP C240DN feeds up to Legal): Ledger 0x11, A3 8, B4 0x0C, 8K 0x5C.
 
 ### 5.2 Paper type codes
 PlainRecycled 0 (driver default), Plain 1, Plain90 (thick 1) 0x10,
@@ -197,7 +199,7 @@ Each plane of each band is an independent JBIG1 (ITU-T T.85) bi-level image:
   data are **identical to the reference encoder jbigkit**
   (`pbmtojbg -q -s 256 -m 0 -p 64 -o 3`) except that Windows keeps the
   coder's trailing zero bytes before the final `FF 02` (T.85 allows dropping
-  them; jbigkit drops them) and that **L0 = YD** (min(256, band lines):
+  them; jbigkit drops them) and that **L0 = YD** (min(256, encoded rows):
   158 on the A4 short band, 256 elsewhere) where jbigkit always writes
   256. After `FF 02` Windows pads with `00` or `FF`
   bytes to a length that is a multiple of 8.
