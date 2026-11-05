@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -57,7 +58,8 @@ func exitCode(err error, stderr io.Writer) int {
 		return 0
 	}
 	fmt.Fprintf(stderr, "ricoh-spc240: %v\n", err)
-	if _, ok := err.(usageError); ok {
+	var ue usageError
+	if errors.As(err, &ue) {
 		return 2
 	}
 	return 1

@@ -184,3 +184,39 @@ func TestCloseReportsResetAfterSend(t *testing.T) {
 		t.Fatalf("Close = %v, want error naming %s", err, addr)
 	}
 }
+
+func TestAbortResetsQuickly(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skip(err)
+	}
+	defer ln.Close()
+	res := make(chan error, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			res <- err
+			return
+		}
+		defer c.Close()
+		c.SetReadDeadline(time.Now().Add(5 * time.Second))
+		_, err = io.Copy(io.Discard, c)
+		res <- err
+	}()
+	c, err := Dial(context.Background(), ln.Addr().String(), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Write([]byte("partial"))
+	start := time.Now()
+	if err := c.Abort(); err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Errorf("Abort took %v", d)
+	}
+	// With RST the server's read normally fails; clean EOF would mean a FIN.
+	if err := <-res; err == nil {
+		t.Log("server saw a clean EOF (loopback did not report the reset)")
+	}
+}

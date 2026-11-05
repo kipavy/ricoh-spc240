@@ -31,6 +31,7 @@ type common struct {
 	duplex, pages, paper, ptype, tray string
 	quality, assets, printer, output  string
 	copies                            int
+	addr                              string // normalised printer address
 }
 
 func newCommon(name string, stderr io.Writer) *common {
@@ -132,6 +133,15 @@ func (c *common) jobOptions(title string) (ddst.Options, error) {
 	if err != nil {
 		return o, fmt.Errorf("loading screens (is --assets %q right?): %w", c.assets, err)
 	}
+	// Dry run: reject incompatible options before anything is rendered or opened.
+	if _, err := ddst.NewJob(io.Discard, o); err != nil {
+		return o, usageError{err}
+	}
+	if c.output == "" {
+		if c.addr, err = send.NormalizeAddr(c.printer); err != nil {
+			return o, usageError{err}
+		}
+	}
 	return o, nil
 }
 
@@ -140,7 +150,7 @@ func (c *common) jobOptions(title string) (ddst.Options, error) {
 // buffered so that a rendering error never opens a connection.
 type sink struct {
 	f     *os.File
-	conn  io.WriteCloser
+	conn  send.Conn
 	buf   bytes.Buffer
 	bytes int
 	addr  string
@@ -175,7 +185,7 @@ func (s *sink) connect(ctx context.Context) error {
 // connection no JIDG is sent, so the printer discards the partial job.
 func (s *sink) abort() {
 	if s.conn != nil {
-		s.conn.Close()
+		s.conn.Abort()
 	}
 	if s.f != nil {
 		name := s.f.Name()
@@ -198,16 +208,12 @@ func (c *common) writeJob(ctx context.Context, stdout io.Writer, o ddst.Options,
 		}
 		s.f = f
 	} else {
-		addr, err := send.NormalizeAddr(c.printer)
-		if err != nil {
-			return usageError{err}
-		}
-		s.addr = addr
+		s.addr = c.addr
 	}
 	job, err := ddst.NewJob(s, o)
 	if err != nil {
 		s.abort()
-		return usageError{err}
+		return err
 	}
 	w, h := raster.PrintableArea(o.Paper.WidthPt, o.Paper.HeightPt, 600)
 	pages := 0

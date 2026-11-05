@@ -47,7 +47,7 @@ type conn struct {
 
 // Dial connects to the printer. timeout bounds the connection attempt
 // (10 s when 0); ctx can cancel it earlier.
-func Dial(ctx context.Context, addr string, timeout time.Duration) (io.WriteCloser, error) {
+func Dial(ctx context.Context, addr string, timeout time.Duration) (Conn, error) {
 	full, err := NormalizeAddr(addr)
 	if err != nil {
 		return nil, err
@@ -90,4 +90,18 @@ func (w *conn) Close() error {
 		return nil
 	}
 	return fmt.Errorf("printer %s reset the connection after the job was sent: %w", w.addr, err)
+}
+
+// Conn is a printer connection. Abort drops it without finishing the job.
+type Conn interface {
+	io.WriteCloser
+	// Abort resets the connection immediately (RST, nothing is drained), so
+	// the printer discards a partial job.
+	Abort() error
+}
+
+// Abort hard-closes the connection without draining.
+func (w *conn) Abort() error {
+	w.c.SetLinger(0)
+	return w.c.Close()
 }

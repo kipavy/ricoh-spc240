@@ -132,9 +132,14 @@ func TestPrintValidatesBeforeRendering(t *testing.T) {
 	if code != 1 || !strings.Contains(errs, "screens") {
 		t.Errorf("exit %d, stderr %q", code, errs)
 	}
-	code, _, errs = runCmd("print", "nonexistent.pdf", "--mono", "--assets", writeScreens(t), "--output", filepath.Join(t.TempDir(), "o"))
-	if code != 1 || errs == "" {
-		t.Errorf("exit %d, stderr %q", code, errs)
+	code, _, errs = runCmd("print", "nonexistent.pdf", "--assets", writeScreens(t), "--output", filepath.Join(t.TempDir(), "o"))
+	if code != 1 || !strings.Contains(errs, "ICC profile") {
+		t.Errorf("ICC case: exit %d, stderr %q", code, errs)
+	}
+	assets := writeScreens(t)
+	code, _, errs = runCmd("print", filepath.Join(t.TempDir(), "nonexistent.pdf"), "--mono", "--assets", assets, "--output", filepath.Join(t.TempDir(), "o"))
+	if code != 1 || !strings.Contains(errs, "nonexistent.pdf") {
+		t.Errorf("input case: exit %d, stderr %q", code, errs)
 	}
 }
 
@@ -245,5 +250,74 @@ func TestNoConnectionOnBadInput(t *testing.T) {
 	case <-accepted:
 		t.Error("printer connection opened despite a bad page")
 	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+func TestValidationBeforeOutputAndRender(t *testing.T) {
+	assets := writeScreens(t)
+	tmp := t.TempDir()
+	in := filepath.Join(tmp, "in.pdf")
+	os.WriteFile(in, []byte("%PDF-dummy"), 0o644)
+	page := filepath.Join(tmp, "p.pgm")
+	writePGM(t, page, false)
+	out := filepath.Join(tmp, "existing.ddst")
+	for name, args := range map[string][]string{
+		"print":  {"print", in, "--mono", "--paper", "A6", "--duplex", "long", "--assets", assets, "--output", out},
+		"encode": {"encode", page, "--mono", "--paper", "A6", "--duplex", "long", "--assets", assets, "--output", out},
+		"addr":   {"encode", page, "--mono", "--paper", "A6", "--assets", assets, "--printer", " "},
+	} {
+		os.WriteFile(out, []byte("keep me"), 0o644)
+		if code, _, errs := runCmd(args...); code != 2 {
+			t.Errorf("%s: exit %d, stderr %q", name, code, errs)
+		}
+		if b, _ := os.ReadFile(out); string(b) != "keep me" {
+			t.Errorf("%s: output file was modified: %q", name, b)
+		}
+	}
+}
+
+func TestAbortAfterConnectSendsNoJIDG(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skip(err)
+	}
+	defer ln.Close()
+	got := make(chan []byte, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			got <- nil
+			return
+		}
+		defer c.Close()
+		c.SetReadDeadline(time.Now().Add(10 * time.Second))
+		b, _ := io.ReadAll(c) // a reset ends the read early; keep what arrived
+		got <- b
+	}()
+	assets := writeScreens(t)
+	tmp := t.TempDir()
+	good, bad := filepath.Join(tmp, "good.pgm"), filepath.Join(tmp, "bad.pgm")
+	writePGM(t, good, true)
+	os.WriteFile(bad, []byte("junk"), 0o644)
+	code, out, _ := runCmd("encode", good, bad, "--mono", "--paper", "A6", "--assets", assets,
+		"--quality", "fast", "--printer", ln.Addr().String())
+	if code != 1 || out != "" {
+		t.Errorf("exit %d, stdout %q", code, out)
+	}
+	b := <-got
+	if len(b) == 0 {
+		t.Error("no connection/bytes received: the abort path was not exercised")
+	}
+	if bytes.Contains(b, []byte("JIDG")) {
+		t.Error("aborted job contains JIDG")
+	}
+
+	o := filepath.Join(tmp, "o.ddst")
+	code, _, _ = runCmd("encode", good, bad, "--mono", "--paper", "A6", "--assets", assets, "--output", o)
+	if code != 1 {
+		t.Errorf("output variant exit %d", code)
+	}
+	if _, err := os.Stat(o); !os.IsNotExist(err) {
+		t.Errorf("partial output file not removed: %v", err)
 	}
 }

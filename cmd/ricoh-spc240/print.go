@@ -46,13 +46,13 @@ func runPrint(c *common, input string, stdout io.Writer) error {
 		return err
 	}
 	f.Close()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	tmp, err := os.MkdirTemp("", "ricoh-spc240-*")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(tmp)
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	rctx, cancel := context.WithCancel(ctx)
 	files, errc := render.Render(rctx, render.Request{Input: input, Paper: o.Paper,
 		Color: o.Color, Pages: c.pages, ICC: icc, TmpDir: tmp})
