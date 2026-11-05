@@ -522,3 +522,47 @@ func TestLandscapeTextEndToEnd(t *testing.T) {
 	for range files {
 	}
 }
+
+func TestCopiesBounds(t *testing.T) {
+	assets := writeScreens(t)
+	for _, n := range []string{"0", "1000", "70000"} {
+		code, _, errs := runCmd("encode", "x.pgm", "--copies", n, "--assets", assets, "--output", "o.ddst")
+		if code != 2 || !strings.Contains(errs, "copies must be between 1 and 999") {
+			t.Errorf("copies %s: exit %d, stderr %q", n, code, errs)
+		}
+	}
+	var errb bytes.Buffer
+	c := newCommon("print", &errb)
+	if _, err := c.parseArgs([]string{"--copies", "999", "--mono", "--assets", assets, "--output", "o"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.jobOptions("t"); err != nil {
+		t.Errorf("copies 999 rejected: %v", err)
+	}
+}
+
+func TestNoCollateDuplexWarning(t *testing.T) {
+	assets := writeScreens(t)
+	for _, c := range []struct {
+		args []string
+		warn bool
+	}{
+		{[]string{"--duplex", "long", "--no-collate"}, true},
+		{[]string{"--duplex", "long"}, false},
+		{[]string{"--no-collate"}, false},
+	} {
+		var errb bytes.Buffer
+		cm := newCommon("print", &errb)
+		args := append([]string{"--mono", "--assets", assets, "--output", "o"}, c.args...)
+		if _, err := cm.parseArgs(args); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := cm.jobOptions("t"); err != nil {
+			t.Fatal(err)
+		}
+		got := strings.Contains(errb.String(), "--no-collate is ignored with --duplex: copies are collated")
+		if got != c.warn {
+			t.Errorf("%v: warning = %v, stderr %q", c.args, got, errb.String())
+		}
+	}
+}

@@ -120,8 +120,11 @@ func (c *common) jobOptions(title string) (ddst.Options, error) {
 	default:
 		return o, usagef("unknown duplex mode %q (want none, long or short)", c.duplex)
 	}
-	if c.copies < 1 {
-		return o, usagef("--copies must be at least 1")
+	if c.copies < 1 || c.copies > 999 {
+		return o, usagef("copies must be between 1 and 999")
+	}
+	if c.noCollate && o.Duplex != ddst.DuplexNone {
+		fmt.Fprintln(c.fs.Output(), "ricoh-spc240: warning: --no-collate is ignored with --duplex: copies are collated")
 	}
 	if c.pages != "" {
 		if _, err := render.ParsePages(c.pages, 1<<16); err != nil {

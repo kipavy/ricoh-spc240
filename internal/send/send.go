@@ -19,7 +19,7 @@ const (
 
 // Tunable by tests.
 var (
-	writeTimeout = 30 * time.Second
+	writeTimeout = 5 * time.Minute // the printer may wait for paper or the bypass tray
 	closeWait    = 10 * time.Second
 )
 

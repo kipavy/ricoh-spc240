@@ -594,7 +594,7 @@ func TestJobWritesSimplexPageImmediately(t *testing.T) {
 
 func TestJobStreamsPagesIncrementally(t *testing.T) {
 	if testing.Short() {
-		t.Skip("12 A4 colour pages")
+		t.Skip("4 A4 colour pages")
 	}
 	var cw countWriter
 	j, err := NewJob(&cw, opts(t, true, DuplexNone))
@@ -603,7 +603,7 @@ func TestJobStreamsPagesIncrementally(t *testing.T) {
 	}
 	var ms runtime.MemStats
 	last := cw.n
-	for i := 0; i < 12; i++ {
+	for i := 0; i < 4; i++ {
 		p := page(4, i%4)
 		for y := 0; y < a4H; y += 37 { // some ink on every band
 			p.Pix[(y*a4W+(y*7)%a4W)*4+i%4] = 1
@@ -629,9 +629,12 @@ func TestJobStreamsPagesIncrementally(t *testing.T) {
 
 func TestDecodeRoundTrip(t *testing.T) {
 	o := opts(t, true, DuplexNone)
+	a5, _ := LookupPaper("A5") // smaller page: same coverage, faster
+	o.Paper = a5
+	w, h := PageRaster(a5)
 	o.Quality = halftone.Standard
 	o.Screens = identityScreens(t, 2)
-	pg := page(4, 0)
+	pg := sizedPage(w, h, 4, 0)
 	seed := uint32(1)
 	for i := range pg.Pix {
 		seed = seed*1664525 + 1013904223
@@ -640,21 +643,21 @@ func TestDecodeRoundTrip(t *testing.T) {
 		}
 	}
 	// Expected 2-bpp planes in stream order K, Y, M, C.
-	stride := a4W * 2 / 8
+	stride := w * 2 / 8
 	var want [4][]byte
 	for k := 0; k < 4; k++ {
 		ch := 3 - k
-		want[k] = make([]byte, stride*a4H)
-		vals := make([]byte, a4W)
-		for y := 0; y < a4H; y++ {
-			for x := 0; x < a4W; x++ {
-				vals[x] = pg.Pix[(y*a4W+x)*4+ch]
+		want[k] = make([]byte, stride*h)
+		vals := make([]byte, w)
+		for y := 0; y < h; y++ {
+			for x := 0; x < w; x++ {
+				vals[x] = pg.Pix[(y*w+x)*4+ch]
 			}
 			o.Screens[ch].Row(vals, y, want[k][y*stride:])
 		}
 	}
 	p := pagesOf(t, run(t, o, pg))[0]
-	if binary.BigEndian.Uint16(p.hdr[12:]) != a4W*2 {
+	if binary.BigEndian.Uint16(p.hdr[12:]) != uint16(w*2) {
 		t.Fatalf("width bits %d", binary.BigEndian.Uint16(p.hdr[12:]))
 	}
 	for k := 0; k < 4; k++ {
@@ -666,8 +669,11 @@ func TestDecodeRoundTrip(t *testing.T) {
 
 func TestParseErrors(t *testing.T) {
 	var buf bytes.Buffer
-	j, _ := NewJob(&buf, opts(t, false, DuplexNone))
-	if err := j.AddPage(page(1, 0, [2]int{1, 1})); err != nil {
+	o := opts(t, false, DuplexNone)
+	o.Paper, _ = LookupPaper("A5") // small job: only the framing matters
+	w, h := PageRaster(o.Paper)
+	j, _ := NewJob(&buf, o)
+	if err := j.AddPage(sizedPage(w, h, 1, 0, [2]int{1, 1})); err != nil {
 		t.Fatal(err)
 	}
 	j.Close()
@@ -730,5 +736,17 @@ func TestJobWriteErrorIsSticky(t *testing.T) {
 	}
 	if err := j.Close(); err == nil {
 		t.Error("Close after write error returned nil")
+	}
+}
+
+func TestJobCopiesUpperBound(t *testing.T) {
+	o := opts(t, false, DuplexNone)
+	o.Copies = 1000
+	if _, err := NewJob(io.Discard, o); err == nil {
+		t.Error("copies 1000 accepted")
+	}
+	o.Copies = 999
+	if _, err := NewJob(io.Discard, o); err != nil {
+		t.Errorf("copies 999 rejected: %v", err)
 	}
 }

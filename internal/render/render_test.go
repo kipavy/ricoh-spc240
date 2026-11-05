@@ -258,7 +258,7 @@ func TestToLatin1(t *testing.T) {
 
 func TestEnscriptMedia(t *testing.T) {
 	for in, want := range map[string]string{
-		"A4": "A4", "a3": "A3", "A5": "A5", "Letter": "Letter", "LEGAL": "Legal",
+		"A4": "A4", "A5": "A5", "Letter": "Letter", "LEGAL": "Legal",
 		"Executive": "Executive", "B5": "A4", "": "A4", "A6": "A4",
 	} {
 		if got := enscriptMedia(in); got != want {

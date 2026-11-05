@@ -161,14 +161,11 @@ func paperMedia(name string, code byte, wNom, hNom, wUM, hUM uint32, duplex bool
 var papers = []PaperSize{
 	paper("Letter", 0x01, 215900, 279400, true),
 	paper("Legal", 0x05, 215900, 355600, true),
-	paper("Ledger", 0x11, 279400, 431800, true),
 	paper("Executive", 0x07, 184150, 266700, true),
 	paper("HalfLetter", 0x06, 139700, 215900, false),
-	paper("A3", 0x08, 297000, 420000, true),
 	paperMedia("A4", 0x09, 210000, 297000, 209974, 296926, true),
 	paperMedia("A5", 0x0B, 148000, 210000, 147998, 209974, false),
 	paper("A6", 0x46, 105000, 148000, false),
-	paper("B4", 0x0C, 257000, 364000, true),
 	paper("B5", 0x0D, 182000, 257000, true), // JIS B5
 	paper("B6", 0x58, 128000, 182000, false),
 	paper("FS", 0x10, 215900, 330200, true),
@@ -179,7 +176,6 @@ var papers = []PaperSize{
 	paper("EnvDL", 0x1B, 110000, 220000, false),
 	paper("EnvC5", 0x1C, 162000, 229000, false),
 	paper("EnvC6", 0x1F, 114000, 162000, false),
-	paper("8K", 0x5C, 270000, 390000, true),
 	paper("16K", 0x5D, 195000, 270000, true),
 	paper("Postcard", 0x2B, 100000, 148000, false),
 	paper("ReplyPostcard", 0x45, 148000, 200000, false),

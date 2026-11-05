@@ -317,7 +317,7 @@ func render(ctx context.Context, r Request, out chan<- PageFile) error {
 // enscriptMedia maps a paper name to a media enscript ships; the real page
 // size is applied later by gs/img2pdf, so anything else falls back to A4.
 func enscriptMedia(name string) string {
-	for _, m := range []string{"A3", "A4", "A5", "Letter", "Legal", "Executive"} {
+	for _, m := range []string{"A4", "A5", "Letter", "Legal", "Executive"} {
 		if strings.EqualFold(name, m) {
 			return m
 		}

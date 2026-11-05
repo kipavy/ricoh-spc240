@@ -158,10 +158,10 @@ func TestLookupPaper(t *testing.T) {
 
 func TestPaperTable(t *testing.T) {
 	codes := map[string]byte{
-		"Letter": 1, "Legal": 5, "Ledger": 0x11, "Executive": 7, "HalfLetter": 6, "A3": 8, "A4": 9,
-		"A5": 0x0B, "A6": 0x46, "B4": 0x0C, "B5": 0x0D, "B6": 0x58, "FS": 0x10, "Folio": 0x0F,
+		"Letter": 1, "Legal": 5, "Executive": 7, "HalfLetter": 6, "A4": 9,
+		"A5": 0x0B, "A6": 0x46, "B5": 0x0D, "B6": 0x58, "FS": 0x10, "Folio": 0x0F,
 		"Foolscap": 0x0E, "Env10": 0x14, "Monarch": 0x25, "EnvDL": 0x1B, "EnvC5": 0x1C,
-		"EnvC6": 0x1F, "8K": 0x5C, "16K": 0x5D, "Postcard": 0x2B, "ReplyPostcard": 0x45, "Custom": 0xFF,
+		"EnvC6": 0x1F, "16K": 0x5D, "Postcard": 0x2B, "ReplyPostcard": 0x45, "Custom": 0xFF,
 	}
 	noDuplex := map[string]bool{"A5": true, "B6": true, "A6": true, "HalfLetter": true, "Env10": true,
 		"Monarch": true, "EnvDL": true, "EnvC5": true, "EnvC6": true, "Postcard": true,
@@ -232,6 +232,14 @@ func TestPaperPrintableArea(t *testing.T) {
 		p, _ := LookupPaper(name)
 		if w, h := raster.PrintableArea(p.WidthPt, p.HeightPt, 600); w != want[0] || h != want[1] {
 			t.Errorf("%s: %dx%d, want %dx%d", name, w, h, want[0], want[1])
+		}
+	}
+}
+
+func TestUnsupportedPapersRemoved(t *testing.T) {
+	for _, n := range []string{"A3", "B4", "Ledger", "8K"} {
+		if _, err := LookupPaper(n); err == nil {
+			t.Errorf("%s still accepted", n)
 		}
 	}
 }

@@ -221,3 +221,9 @@ func TestAbortResetsQuickly(t *testing.T) {
 		t.Log("server saw a clean EOF (loopback did not report the reset)")
 	}
 }
+
+func TestWriteTimeoutDefault(t *testing.T) {
+	if writeTimeout < 5*time.Minute {
+		t.Errorf("writeTimeout %v: printer may wait minutes for paper", writeTimeout)
+	}
+}

@@ -45,8 +45,11 @@ func runPrint(c *common, input string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	kind, _ := render.Detect(input) // errors surface from Render
 	f.Close()
+	kind, err := render.Detect(input)
+	if err != nil {
+		return err
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	tmp, err := os.MkdirTemp("", "ricoh-spc240-*")

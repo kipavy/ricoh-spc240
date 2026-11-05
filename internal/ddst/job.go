@@ -67,8 +67,8 @@ type encodedPage struct {
 // NewJob validates o and writes the GDIJ and GJET records. Nothing is
 // written when o is invalid.
 func NewJob(w io.Writer, o Options) (*Job, error) {
-	if o.Copies < 1 {
-		return nil, fmt.Errorf("ddst: copies must be >= 1, got %d", o.Copies)
+	if o.Copies < 1 || o.Copies > 999 {
+		return nil, fmt.Errorf("ddst: copies must be between 1 and 999, got %d", o.Copies)
 	}
 	bpp := o.Quality.BPP()
 	if bpp != 1 && bpp != 2 && bpp != 4 {

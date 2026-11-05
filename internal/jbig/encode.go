@@ -223,7 +223,7 @@ func encodeImage(width, height, l0 int, rows []byte, options byte) []byte {
 	binary.BigEndian.PutUint32(out[4:], uint32(width))
 	binary.BigEndian.PutUint32(out[8:], uint32(height))
 	binary.BigEndian.PutUint32(out[12:], uint32(l0))
-	out[18] = 0x03 // order: HITOLO | SEQ
+	out[18] = 0x03 // order: ILEAVE | SMID
 	out[19] = options
 	twoLine := options&optLRLTWO != 0
 
