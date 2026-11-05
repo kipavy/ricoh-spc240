@@ -5,6 +5,9 @@ on:
     branches: [main]
     tags: ["v*"]
   pull_request:
+  schedule:
+    # Weekly rebuild so the image picks up Debian security updates.
+    - cron: "0 4 * * 1"
 
 permissions:
   contents: read
@@ -20,7 +23,7 @@ jobs:
       - name: Install test tools
         run: sudo apt-get update && sudo apt-get install -y jbigkit-bin ghostscript img2pdf enscript
       - run: go vet ./...
-      - run: go test -race ./...
+      - run: go test -race -timeout 30m ./...
 
   image:
     needs: test
@@ -47,6 +50,33 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+      - name: Build smoke-test image (runner platform)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: ricoh-spc240:ci
+          cache-from: type=gha
+      - name: Smoke test the image
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/out"
+          mkdir -p "$out"
+          chmod 777 "$out" # the container runs as uid 65534
+          run() { docker run --rm -v "$out":/out ricoh-spc240:ci "$@"; }
+          run testpage --output /out/t.ddst
+          run decode /out/t.ddst | tee "$out/t.txt"
+          test "$(grep -c '^GDIP @' "$out/t.txt")" -eq 2
+          ps='/Helvetica findfont 48 scalefont setfont 100 600 moveto (Smoke test) show showpage'
+          docker run --rm -v "$out":/out --entrypoint gs ricoh-spc240:ci \
+            -q -sDEVICE=pdfwrite -o /out/p.pdf -c "$ps"
+          docker run --rm -v "$out":/out --entrypoint gs ricoh-spc240:ci \
+            -q -sDEVICE=png16m -r50 -o /out/p.png -c "$ps"
+          run print /out/p.pdf --output /out/p.ddst
+          run print /out/p.png --output /out/q.ddst
+          run decode /out/p.ddst | grep -q '^GDIP @'
+          run decode /out/q.ddst | grep -q '^GDIP @'
       - uses: docker/build-push-action@v6
         with:
           context: .

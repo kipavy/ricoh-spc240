@@ -1,14 +1,15 @@
 # syntax=docker/dockerfile:1
 
-FROM golang:1.24-bookworm AS build
+FROM --platform=$BUILDPLATFORM golang:1.24-bookworm AS build
+ARG TARGETOS TARGETARCH
 WORKDIR /src
 COPY go.mod ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ricoh-spc240 ./cmd/ricoh-spc240
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/ricoh-spc240 ./cmd/ricoh-spc240
 
 # Downloads Ricoh's halftone screens and ICC profile from support.ricoh.com.
-FROM debian:bookworm-slim AS assets
+FROM --platform=$BUILDPLATFORM debian:bookworm-slim AS assets
 RUN apt-get update \
  && apt-get install -y --no-install-recommends p7zip-full cpio curl ca-certificates \
  && rm -rf /var/lib/apt/lists/*
